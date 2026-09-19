@@ -1,0 +1,1974 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+<title>Voltrix Markets — Forex Trading Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>
+  :root{
+    --bg:#0A0E14; --bg-elev:#10151F; --panel:#141A25; --panel-2:#181F2B;
+    --border:#232B3A; --border-soft:#1B2230;
+    --text:#E7ECF5; --text-dim:#8592A6; --text-faint:#5C6779;
+    --buy:#00C896; --buy-bg:rgba(0,200,150,0.12);
+    --sell:#FF5C72; --sell-bg:rgba(255,92,114,0.12);
+    --brand:#4C7FFF; --brand-bg:rgba(76,127,255,0.14);
+    --warn:#FFB020; --warn-bg:rgba(255,176,32,0.12);
+    --font-ui:'IBM Plex Sans',sans-serif; --font-mono:'IBM Plex Mono',monospace;
+  }
+  :root[data-theme="light"]{
+    --bg:#F3F5F8; --bg-elev:#FFFFFF; --panel:#FFFFFF; --panel-2:#F7F9FB;
+    --border:#E1E6ED; --border-soft:#EBEEF3;
+    --text:#141A25; --text-dim:#5C6779; --text-faint:#8B96A6;
+    --buy:#059669; --buy-bg:rgba(5,150,105,0.10);
+    --sell:#DC2626; --sell-bg:rgba(220,38,38,0.10);
+    --brand:#3358D6; --brand-bg:rgba(51,88,214,0.10);
+    --warn:#B45309; --warn-bg:rgba(180,83,9,0.10);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--font-ui);}
+  body{-webkit-font-smoothing:antialiased;}
+  #root{min-height:100vh;}
+  .mono{font-family:var(--font-mono);}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+  .scrollx{overflow-x:auto;}
+  .fadein{animation:fadein .18s ease-out;}
+  @keyframes fadein{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+  @keyframes slideup{from{transform:translateY(100%);}to{transform:translateY(0);}}
+  .slideup{animation:slideup .22s ease-out;}
+  @keyframes toastin{from{opacity:0;transform:translateX(20px);}to{opacity:1;transform:translateX(0);}}
+  .toastin{animation:toastin .2s ease-out;}
+  input[type=range]{accent-color:var(--brand);}
+  .focus-ring:focus-visible{outline:2px solid var(--brand);outline-offset:2px;}
+  table{border-collapse:collapse;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useReducer,useRef,useMemo,useCallback,createContext,useContext} = React;
+
+/* ============================== CONSTANTS ============================== */
+const LOT = { 'XAU/USD':100, 'XAG/USD':5000, 'default':100000 };
+const contractSize = s => LOT[s] || LOT.default;
+const pipSize = s => s.includes('JPY') ? 0.01 : s==='XAU/USD' ? 0.1 : s==='XAG/USD' ? 0.01 : 0.0001;
+const digitsOf = s => s.includes('JPY') ? 3 : s==='XAU/USD' ? 2 : s==='XAG/USD' ? 3 : 5;
+const SPREAD_PIPS = {'EUR/USD':1.2,'GBP/USD':1.6,'USD/JPY':1.4,'USD/CHF':1.8,'AUD/USD':1.5,'USD/CAD':1.9,'NZD/USD':2.2,'EUR/GBP':1.7,'EUR/JPY':2.0,'GBP/JPY':2.8,'XAU/USD':35,'XAG/USD':4};
+const INSTRUMENTS = [
+  {symbol:'EUR/USD', base:1.08532, group:'Major'},
+  {symbol:'GBP/USD', base:1.26480, group:'Major'},
+  {symbol:'USD/JPY', base:149.512, group:'Major'},
+  {symbol:'USD/CHF', base:0.88204, group:'Major'},
+  {symbol:'AUD/USD', base:0.65203, group:'Major'},
+  {symbol:'USD/CAD', base:1.35812, group:'Major'},
+  {symbol:'NZD/USD', base:0.59802, group:'Minor'},
+  {symbol:'EUR/GBP', base:0.85804, group:'Minor'},
+  {symbol:'EUR/JPY', base:162.204, group:'Minor'},
+  {symbol:'GBP/JPY', base:189.104, group:'Minor'},
+  {symbol:'XAU/USD', base:2385.50, group:'Metal'},
+  {symbol:'XAG/USD', base:28.652, group:'Metal'},
+];
+const LEVERAGE = 100;
+const uid = (p='') => p + Math.random().toString(36).slice(2,9);
+const now = () => Date.now();
+
+function fmt(n, d){ if(n===undefined||n===null||isNaN(n)) return '-'; return n.toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); }
+function fmtMoney(n, opts={}){ const sign = n<0?'-':(opts.plus&&n>0?'+':''); return sign+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtPct(n){ const sign = n>0?'+':''; return sign+n.toFixed(2)+'%'; }
+function timeAgo(ts){ const s=Math.floor((now()-ts)/1000); if(s<60) return s+'s ago'; const m=Math.floor(s/60); if(m<60) return m+'m ago'; const h=Math.floor(m/60); if(h<24) return h+'h ago'; return Math.floor(h/24)+'d ago'; }
+function fmtClock(ts){ return new Date(ts).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'}); }
+function fmtDate(ts){ return new Date(ts).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
+
+/* seeded RNG for stable chart history per symbol/timeframe */
+function mulberry32(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function seedFromStr(s){ let h=0; for(let i=0;i<s.length;i++){ h=(h<<5)-h+s.charCodeAt(i); h|=0; } return h; }
+
+function generateSeries(symbol, timeframe, endPrice){
+  const count = 90;
+  const rng = mulberry32(seedFromStr(symbol+timeframe));
+  const vol = symbol.startsWith('XAU') ? endPrice*0.003 : symbol.startsWith('XAG') ? endPrice*0.006 : symbol.includes('JPY') ? endPrice*0.0009 : endPrice*0.0011;
+  let price = endPrice * (1 - vol*0.02*count/90*3.2*(0.5));
+  // walk forward to end near endPrice using bridge technique
+  const raw = [];
+  let p = endPrice;
+  for(let i=count-1;i>=0;i--){
+    raw[i] = p;
+    const drift = (rng()-0.5)*vol;
+    p = p - drift;
+  }
+  const candles = [];
+  for(let i=0;i<count;i++){
+    const o = raw[i];
+    const c = i<count-1 ? raw[i+1] : endPrice;
+    const wig = vol*0.6;
+    const h = Math.max(o,c) + rng()*wig;
+    const l = Math.min(o,c) - rng()*wig;
+    candles.push({t:i, o, h, l, c});
+  }
+  candles[candles.length-1].c = endPrice;
+  candles[candles.length-1].h = Math.max(candles[candles.length-1].h, endPrice);
+  candles[candles.length-1].l = Math.min(candles[candles.length-1].l, endPrice);
+  return candles;
+}
+
+/* ============================== ICONS ============================== */
+const ICON_PATHS = {
+  bell:"M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0",
+  search:"M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.35-4.35",
+  settings:"M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.16.51.51.94 1 1.17.31.13.65.2 1 .2H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z",
+  user:"M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z",
+  chevronDown:"m6 9 6 6 6-6",
+  chevronRight:"m9 18 6-6-6-6",
+  x:"M18 6 6 18M6 6l12 12",
+  plus:"M12 5v14M5 12h14",
+  minus:"M5 12h14",
+  star:"m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2Z",
+  arrowUp:"M12 19V5M5 12l7-7 7 7",
+  arrowDown:"M12 5v14M19 12l-7 7-7-7",
+  menu:"M4 6h16M4 12h16M4 18h16",
+  home:"m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z M9 22V12h6v10",
+  chart:"M3 3v18h18 M18 17V9 M13 17V5 M8 17v-3",
+  wallet:"M21 12V7H5a2 2 0 0 1 0-4h14v4 M3 5v14a2 2 0 0 0 2 2h16v-5 M18 12a2 2 0 0 0 0 4h3v-4Z",
+  clock:"M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z M12 6v6l4 2",
+  list:"M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  calendar:"M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z",
+  news:"M4 4h12v14a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2Z M16 4h4v2h-4z M8 8h6M8 11h6M8 14h4",
+  alert:"M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z M12 9v4 M12 17h.01",
+  trending:"M23 6l-9.5 9.5-5-5L1 18 M17 6h6v6",
+  file:"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z M14 2v6h6",
+  logout:"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9",
+  moon:"M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z",
+  sun:"M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42",
+  check:"M20 6 9 17l-5-5",
+  trash:"M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6",
+  edit:"M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z",
+  shield:"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z",
+  gauge:"M12 12 15 9 M4.6 15.5A9 9 0 1 1 20 15.5 M4.6 15.5h14.8",
+  layers:"m12 2 9 5-9 5-9-5 9-5Z M3 12l9 5 9-5 M3 17l9 5 9-5",
+  filter:"M22 3H2l8 9.46V19l4 2v-8.54L22 3Z",
+  download:"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3",
+  flag:"M4 22V4a1 1 0 0 1 1-1h13l-2 5 2 5H6a1 1 0 0 0-1 1v8",
+  globe:"M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM2 12h20M12 2a15 15 0 0 1 4 10 15 15 0 0 1-4 10 15 15 0 0 1-4-10 15 15 0 0 1 4-10Z",
+  refresh:"M3 12a9 9 0 0 1 15-6.7L21 8 M21 3v5h-5 M21 12a9 9 0 0 1-15 6.7L3 16 M3 21v-5h5",
+  lock:"M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2ZM7 11V7a5 5 0 0 1 10 0v4",
+  mail:"M4 4h16v16H4Z M22 6l-10 7L2 6",
+  phone:"M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92Z",
+};
+function Icon({name, size=18, className='', strokeWidth=2}){
+  const d = ICON_PATHS[name] || '';
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d={d}/>
+    </svg>
+  );
+}
+function IconStarFilled({size=18,className=''}){
+  return (<svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}><path d={ICON_PATHS.star}/></svg>);
+}
+
+/* ============================== SEED DATA ============================== */
+function seedHistory(){
+  const rng = mulberry32(777);
+  const rows = [];
+  const syms = INSTRUMENTS.map(i=>i.symbol);
+  for(let i=0;i<18;i++){
+    const sym = syms[Math.floor(rng()*syms.length)];
+    const type = rng()>0.5?'BUY':'SELL';
+    const vol = (Math.floor(rng()*5)+1)*0.1;
+    const inst = INSTRUMENTS.find(x=>x.symbol===sym);
+    const entry = inst.base*(1+(rng()-0.5)*0.01);
+    const exit = entry*(1+(rng()-0.5)*0.015);
+    const cs = contractSize(sym);
+    let pnl = type==='BUY' ? (exit-entry)*cs*vol : (entry-exit)*cs*vol;
+    pnl = Math.round(pnl*100)/100;
+    const openTs = now() - Math.floor(rng()*20+1)*86400000 - Math.floor(rng()*8)*3600000;
+    const closeTs = openTs + Math.floor(rng()*6+1)*3600000;
+    rows.push({
+      id: uid('h'), ticket: 900000+i, symbol: sym, type, volume: vol,
+      entry: entry, exit: exit, openTs, closeTs,
+      commission: -(vol*3.5), swap: Math.round((rng()-0.6)*4*100)/100,
+      profit: pnl, digits: digitsOf(sym)
+    });
+  }
+  return rows.sort((a,b)=>b.closeTs-a.closeTs);
+}
+function seedCalendar(){
+  const events = [
+    ['USD','United States','Non-Farm Payrolls','High','185K','210K','223K'],
+    ['EUR','Euro Zone','ECB Interest Rate Decision','High','4.25%','4.25%',''],
+    ['GBP','United Kingdom','CPI y/y','High','3.1%','3.0%','3.2%'],
+    ['USD','United States','Federal Funds Rate','High','5.50%','5.50%',''],
+    ['AUD','Australia','Employment Change','Medium','28.4K','20.0K',''],
+    ['JPY','Japan','BoJ Policy Rate','High','0.25%','0.25%',''],
+    ['CAD','Canada','Retail Sales m/m','Medium','0.3%','0.5%','0.6%'],
+    ['EUR','Germany','ZEW Economic Sentiment','Medium','12.8','14.0',''],
+    ['NZD','New Zealand','Official Cash Rate','High','5.50%','5.25%',''],
+    ['GBP','United Kingdom','GDP m/m','Medium','0.2%','0.1%','0.2%'],
+    ['USD','United States','ISM Manufacturing PMI','Medium','48.7','49.0',''],
+    ['CHF','Switzerland','SNB Policy Rate','High','1.25%','1.00%',''],
+    ['EUR','Euro Zone','Flash CPI y/y','High','2.6%','2.4%',''],
+    ['USD','United States','Initial Jobless Claims','Low','221K','225K','219K'],
+  ];
+  return events.map((e,i)=>({
+    id: uid('c'), currency:e[0], country:e[1], event:e[2], impact:e[3],
+    previous:e[4], forecast:e[5], actual:e[6],
+    ts: now() + Math.floor((i-4)*4)*3600000 + i*900000
+  })).sort((a,b)=>a.ts-b.ts);
+}
+function seedNews(){
+  const items = [
+    ['Forex','Dollar steadies as traders await inflation data','EUR/USD','The greenback held firm against major peers as markets positioned ahead of the upcoming CPI release, with volatility compressed across G10 pairs.'],
+    ['Central Banks','ECB signals cautious approach to further cuts','EUR/USD','Policymakers emphasized a data-dependent path forward, tempering expectations for consecutive rate reductions in the near term.'],
+    ['Economy','UK inflation cools more than expected','GBP/USD','Headline price growth eased broadly, giving the Bank of England additional room to consider its next policy move.'],
+    ['Commodities','Gold hovers near record levels on safe-haven demand','XAU/USD','Bullion remained well-supported as geopolitical uncertainty and central bank buying continued to underpin prices.'],
+    ['Global Markets','Asian equities mixed as yen strengthens','USD/JPY','Regional shares traded without clear direction while the yen firmed on speculation over policy normalization.'],
+    ['Forex','Aussie dollar climbs on stronger jobs data','AUD/USD','Employment figures beat expectations, reinforcing the case for the central bank to hold rates steady for longer.'],
+    ['Central Banks','Fed officials strike a measured tone on rate path','USD/JPY','Recent commentary suggested policymakers remain in no rush to adjust rates, favoring a wait-and-see stance.'],
+    ['Economy','Canadian retail sales rebound in latest reading','USD/CAD','Consumer spending data topped forecasts, offering modest support to the loonie in choppy trading.'],
+    ['Commodities','Silver tracks gold higher amid industrial demand','XAG/USD','The metal extended gains, buoyed by both haven flows and steady demand from manufacturing sectors.'],
+    ['Global Markets','European bourses edge up ahead of earnings season','EUR/GBP','Sentiment improved modestly across the region as investors looked ahead to a busy corporate reporting calendar.'],
+  ];
+  return items.map((it,i)=>({
+    id: uid('n'), category:it[0], headline:it[1], currency:it[2], summary:it[3],
+    ts: now() - i*3600000*Math.floor(2+Math.random()*3)
+  }));
+}
+
+/* ============================== APP STATE ============================== */
+const AppCtx = createContext(null);
+
+function initialState(){
+  const prices = {};
+  INSTRUMENTS.forEach(ins=>{
+    const spread = SPREAD_PIPS[ins.symbol]*pipSize(ins.symbol);
+    prices[ins.symbol] = {
+      mid: ins.base, bid: ins.base-spread/2, ask: ins.base+spread/2,
+      dayOpen: ins.base, high: ins.base, low: ins.base, prevMid: ins.base,
+      dir: 0
+    };
+  });
+  return {
+    page: 'login',
+    theme: 'dark',
+    liveSim: true,
+    selectedSymbol: 'EUR/USD',
+    prices,
+    account: { balance: 25000, id: 'DEMO-48213', type:'Demo Standard', currency:'USD', leverage: LEVERAGE, name:'Alex Morgan', email:'alex.morgan@example.com', phone:'+1 (415) 555-0182', country:'United States' },
+    positions: [
+      {id:uid('p'), ticket:521001, symbol:'EUR/USD', type:'BUY', volume:0.10, openPrice:1.08420, sl:1.07900, tp:1.09200, openTs: now()-3600000*5, commission:-0.35, swap:-0.12},
+      {id:uid('p'), ticket:521002, symbol:'GBP/USD', type:'SELL', volume:0.20, openPrice:1.26710, sl:1.27300, tp:1.25800, openTs: now()-3600000*11, commission:-0.70, swap:0.24},
+      {id:uid('p'), ticket:521003, symbol:'USD/JPY', type:'BUY', volume:0.15, openPrice:149.180, sl:0, tp:150.400, openTs: now()-3600000*2, commission:-0.53, swap:-0.08},
+    ],
+    pendingOrders: [
+      {id:uid('o'), ticket:531001, symbol:'EUR/USD', type:'BUY LIMIT', volume:0.10, entryPrice:1.08100, sl:1.07600, tp:1.08900, createdTs: now()-3600000*7},
+      {id:uid('o'), ticket:531002, symbol:'GBP/USD', type:'SELL STOP', volume:0.10, entryPrice:1.26200, sl:1.26800, tp:1.25200, createdTs: now()-3600000*3},
+    ],
+    history: seedHistory(),
+    watchlists: {
+      'Major Pairs': ['EUR/USD','GBP/USD','USD/JPY','USD/CHF'],
+      'Minor Pairs': ['EUR/GBP','EUR/JPY','GBP/JPY','NZD/USD'],
+      'Metals': ['XAU/USD','XAG/USD'],
+    },
+    favorites: ['EUR/USD','GBP/USD','XAU/USD'],
+    alerts: [
+      {id:uid('a'), symbol:'EUR/USD', condition:'above', value:1.09500, name:'EURUSD Breakout', active:true, triggered:false},
+      {id:uid('a'), symbol:'XAU/USD', condition:'below', value:2350.00, name:'Gold pullback watch', active:true, triggered:false},
+    ],
+    notifications: [
+      {id:uid('nt'), text:'Welcome to your Demo Account. All data is simulated.', ts:now()-60000, read:false, kind:'info'},
+    ],
+    toasts: [],
+    calendar: seedCalendar(),
+    news: seedNews(),
+    walletTx: [
+      {id:uid('w'), type:'Deposit', amount:25000, ts: now()-86400000*30, note:'Initial demo funding'},
+      {id:uid('w'), type:'Trading P&L', amount:184.20, ts: now()-86400000*4, note:'Closed trades'},
+      {id:uid('w'), type:'Commission', amount:-12.60, ts: now()-86400000*4, note:'Trade commissions'},
+      {id:uid('w'), type:'Swap', amount:-3.40, ts: now()-86400000*2, note:'Overnight swap'},
+    ],
+    settings: {
+      defaultLot: 0.10, defaultOrderType:'Market', confirmBeforeOrder: true, oneClickTrading:false,
+      chartDefaultTF:'1H', chartDefaultType:'candlestick', showGrid:true, showVolume:false,
+      notifyAlerts:true, notifyTrades:true, notifyEvents:true, notifyNews:false,
+      compactMode:false, language:'English'
+    },
+    chartTF: '1H',
+    chartType: 'candlestick',
+    chartIndicators: { ma:false, ema:false, rsi:false },
+    marketFilter: '', marketSort:{key:'symbol',dir:1},
+  };
+}
+
+function calcMargin(symbol, volume, price){ return (price*contractSize(symbol)*volume)/LEVERAGE; }
+function calcPipValue(symbol, volume){ return pipSize(symbol)*contractSize(symbol)*volume; }
+function calcPnL(pos, price){
+  const cs = contractSize(pos.symbol);
+  if(pos.type==='BUY') return (price.bid - pos.openPrice)*cs*pos.volume;
+  return (pos.openPrice - price.ask)*cs*pos.volume;
+}
+
+function reducer(state, action){
+  switch(action.type){
+    case 'ENTER_DEMO': return {...state, page:'dashboard'};
+    case 'SET_PAGE': return {...state, page: action.page};
+    case 'SET_THEME': return {...state, theme: action.theme};
+    case 'TOGGLE_SIM': return {...state, liveSim: !state.liveSim};
+    case 'SELECT_SYMBOL': return {...state, selectedSymbol: action.symbol, page: state.page==='login'?'trade':state.page};
+    case 'SET_CHART_TF': return {...state, chartTF: action.tf};
+    case 'SET_CHART_TYPE': return {...state, chartType: action.ct};
+    case 'TOGGLE_INDICATOR': return {...state, chartIndicators:{...state.chartIndicators, [action.key]: !state.chartIndicators[action.key]}};
+    case 'TOGGLE_FAVORITE': {
+      const has = state.favorites.includes(action.symbol);
+      return {...state, favorites: has ? state.favorites.filter(s=>s!==action.symbol) : [...state.favorites, action.symbol]};
+    }
+    case 'MARKET_FILTER': return {...state, marketFilter: action.value};
+    case 'MARKET_SORT': {
+      const cur = state.marketSort;
+      const dir = cur.key===action.key ? -cur.dir : 1;
+      return {...state, marketSort:{key:action.key, dir}};
+    }
+    case 'ADD_TOAST': return {...state, toasts:[...state.toasts, {id:uid('t'), text:action.text, kind:action.kind||'success'}]};
+    case 'DISMISS_TOAST': return {...state, toasts: state.toasts.filter(t=>t.id!==action.id)};
+    case 'ADD_NOTIF': return {...state, notifications:[{id:uid('nt'), text:action.text, ts:now(), read:false, kind:action.kind||'info'}, ...state.notifications].slice(0,40)};
+    case 'MARK_NOTIFS_READ': return {...state, notifications: state.notifications.map(n=>({...n, read:true}))};
+    case 'ADD_WATCH': {
+      const list = state.watchlists[action.group] || [];
+      if(list.includes(action.symbol)) return state;
+      return {...state, watchlists:{...state.watchlists, [action.group]:[...list, action.symbol]}};
+    }
+    case 'REMOVE_WATCH': {
+      const list = state.watchlists[action.group] || [];
+      return {...state, watchlists:{...state.watchlists, [action.group]: list.filter(s=>s!==action.symbol)}};
+    }
+    case 'CREATE_WATCHLIST_GROUP': {
+      if(state.watchlists[action.name]) return state;
+      return {...state, watchlists:{...state.watchlists, [action.name]: []}};
+    }
+    case 'UPDATE_SETTINGS': return {...state, settings:{...state.settings, ...action.patch}};
+
+    case 'PLACE_ORDER': {
+      const { symbol, orderType, direction, volume, entryPrice, sl, tp } = action.payload;
+      const price = state.prices[symbol];
+      if(orderType==='Market'){
+        const openPrice = direction==='BUY' ? price.ask : price.bid;
+        const pos = {
+          id: uid('p'), ticket: Math.floor(500000+Math.random()*90000),
+          symbol, type: direction, volume, openPrice, sl: sl||0, tp: tp||0,
+          openTs: now(), commission: -(volume*3.5), swap:0
+        };
+        return {...state, positions:[pos, ...state.positions]};
+      } else {
+        const typeLabel = direction+' '+orderType.toUpperCase();
+        const ord = { id: uid('o'), ticket: Math.floor(500000+Math.random()*90000), symbol, type: typeLabel, volume, entryPrice, sl: sl||0, tp: tp||0, createdTs: now() };
+        return {...state, pendingOrders:[ord, ...state.pendingOrders]};
+      }
+    }
+    case 'MODIFY_POSITION': {
+      return {...state, positions: state.positions.map(p=> p.id===action.id ? {...p, sl:action.sl, tp:action.tp} : p)};
+    }
+    case 'CLOSE_POSITION': {
+      const pos = state.positions.find(p=>p.id===action.id);
+      if(!pos) return state;
+      const price = state.prices[pos.symbol];
+      const pnl = calcPnL(pos, price) * (action.fraction||1);
+      const exitPrice = pos.type==='BUY' ? price.bid : price.ask;
+      const histRow = {
+        id: uid('h'), ticket: pos.ticket, symbol: pos.symbol, type: pos.type,
+        volume: pos.volume*(action.fraction||1), entry: pos.openPrice, exit: exitPrice,
+        openTs: pos.openTs, closeTs: now(), commission: pos.commission*(action.fraction||1),
+        swap: pos.swap*(action.fraction||1), profit: Math.round(pnl*100)/100, digits: digitsOf(pos.symbol)
+      };
+      let positions;
+      if(action.fraction && action.fraction<1){
+        positions = state.positions.map(p=> p.id===action.id ? {...p, volume: Math.round((p.volume*(1-action.fraction))*100)/100} : p);
+      } else {
+        positions = state.positions.filter(p=>p.id!==action.id);
+      }
+      return {
+        ...state, positions, history:[histRow, ...state.history],
+        account: {...state.account, balance: state.account.balance + pnl + pos.commission*(action.fraction&&action.fraction<1?action.fraction:1)*0}
+      };
+    }
+    case 'CANCEL_PENDING': return {...state, pendingOrders: state.pendingOrders.filter(o=>o.id!==action.id)};
+    case 'MODIFY_PENDING': return {...state, pendingOrders: state.pendingOrders.map(o=> o.id===action.id ? {...o, entryPrice:action.entryPrice, sl:action.sl, tp:action.tp} : o)};
+    case 'TRIGGER_PENDING': {
+      const ord = state.pendingOrders.find(o=>o.id===action.id);
+      if(!ord) return state;
+      const direction = ord.type.startsWith('BUY') ? 'BUY' : 'SELL';
+      const pos = { id: uid('p'), ticket: ord.ticket, symbol: ord.symbol, type: direction, volume: ord.volume, openPrice: ord.entryPrice, sl: ord.sl, tp: ord.tp, openTs: now(), commission:-(ord.volume*3.5), swap:0 };
+      return {
+        ...state,
+        pendingOrders: state.pendingOrders.filter(o=>o.id!==action.id),
+        positions: [pos, ...state.positions],
+      };
+    }
+    case 'CREATE_ALERT': return {...state, alerts:[{id:uid('a'), triggered:false, active:true, ...action.payload}, ...state.alerts]};
+    case 'DELETE_ALERT': return {...state, alerts: state.alerts.filter(a=>a.id!==action.id)};
+    case 'ACK_ALERT': return {...state, alerts: state.alerts.map(a=> a.id===action.id ? {...a, triggered:true, active:false} : a)};
+    case 'DEPOSIT': return {...state, account:{...state.account, balance: state.account.balance+action.amount}, walletTx:[{id:uid('w'), type:'Deposit', amount:action.amount, ts:now(), note:'Demo deposit'}, ...state.walletTx]};
+    case 'WITHDRAW': return {...state, account:{...state.account, balance: state.account.balance-action.amount}, walletTx:[{id:uid('w'), type:'Withdrawal', amount:-action.amount, ts:now(), note:'Demo withdrawal'}, ...state.walletTx]};
+    case 'UPDATE_PROFILE': return {...state, account: {...state.account, ...action.patch}};
+
+    case 'TICK': {
+      const prices = {};
+      Object.entries(state.prices).forEach(([sym, p])=>{
+        const inst = INSTRUMENTS.find(i=>i.symbol===sym);
+        const vol = sym.startsWith('XAU') ? p.mid*0.00025 : sym.startsWith('XAG') ? p.mid*0.0005 : sym.includes('JPY') ? p.mid*0.00012 : p.mid*0.00009;
+        const delta = (Math.random()-0.5)*vol*2;
+        const mid = Math.max(0.0001, p.mid + delta);
+        const spread = SPREAD_PIPS[sym]*pipSize(sym);
+        prices[sym] = {
+          mid, bid: mid-spread/2, ask: mid+spread/2,
+          dayOpen: p.dayOpen, high: Math.max(p.high, mid), low: Math.min(p.low, mid),
+          prevMid: p.mid, dir: mid>p.mid?1:mid<p.mid?-1:0
+        };
+      });
+      // recompute positions pnl implicitly via render; check SL/TP + pending triggers + alerts
+      let positions = state.positions;
+      let history = state.history;
+      let balance = state.account.balance;
+      let notifications = state.notifications;
+      let toasts = state.toasts;
+      const stillOpen = [];
+      state.positions.forEach(pos=>{
+        const price = prices[pos.symbol];
+        let closePrice = null, reason=null;
+        if(pos.type==='BUY'){
+          if(pos.sl && price.bid<=pos.sl){ closePrice=pos.sl; reason='Stop Loss'; }
+          else if(pos.tp && price.bid>=pos.tp){ closePrice=pos.tp; reason='Take Profit'; }
+        } else {
+          if(pos.sl && price.ask>=pos.sl){ closePrice=pos.sl; reason='Stop Loss'; }
+          else if(pos.tp && price.ask<=pos.tp){ closePrice=pos.tp; reason='Take Profit'; }
+        }
+        if(closePrice){
+          const cs = contractSize(pos.symbol);
+          const pnl = pos.type==='BUY' ? (closePrice-pos.openPrice)*cs*pos.volume : (pos.openPrice-closePrice)*cs*pos.volume;
+          history = [{id:uid('h'), ticket:pos.ticket, symbol:pos.symbol, type:pos.type, volume:pos.volume, entry:pos.openPrice, exit:closePrice, openTs:pos.openTs, closeTs:now(), commission:pos.commission, swap:pos.swap, profit:Math.round(pnl*100)/100, digits:digitsOf(pos.symbol)}, ...history];
+          balance += pnl;
+          const text = `${reason} reached — ${pos.symbol} ${pos.type} closed at ${closePrice.toFixed(digitsOf(pos.symbol))}`;
+          notifications = [{id:uid('nt'), text, ts:now(), read:false, kind: reason==='Take Profit'?'success':'warn'}, ...notifications].slice(0,40);
+          toasts = [...toasts, {id:uid('t'), text, kind: reason==='Take Profit'?'success':'warn'}];
+        } else {
+          stillOpen.push(pos);
+        }
+      });
+      positions = stillOpen;
+      // pending order triggers
+      let pendingOrders = [];
+      state.pendingOrders.forEach(ord=>{
+        const price = prices[ord.symbol];
+        let trig=false;
+        if(ord.type==='BUY LIMIT' && price.ask<=ord.entryPrice) trig=true;
+        if(ord.type==='BUY STOP' && price.ask>=ord.entryPrice) trig=true;
+        if(ord.type==='SELL LIMIT' && price.bid>=ord.entryPrice) trig=true;
+        if(ord.type==='SELL STOP' && price.bid<=ord.entryPrice) trig=true;
+        if(trig){
+          const direction = ord.type.startsWith('BUY') ? 'BUY' : 'SELL';
+          positions = [{id:uid('p'), ticket:ord.ticket, symbol:ord.symbol, type:direction, volume:ord.volume, openPrice:ord.entryPrice, sl:ord.sl, tp:ord.tp, openTs:now(), commission:-(ord.volume*3.5), swap:0}, ...positions];
+          const text = `Pending order triggered — ${ord.symbol} ${ord.type} filled at ${ord.entryPrice.toFixed(digitsOf(ord.symbol))}`;
+          notifications = [{id:uid('nt'), text, ts:now(), read:false, kind:'info'}, ...notifications].slice(0,40);
+          toasts = [...toasts, {id:uid('t'), text, kind:'info'}];
+        } else {
+          pendingOrders.push(ord);
+        }
+      });
+      // alerts
+      const alerts = state.alerts.map(a=>{
+        if(!a.active || a.triggered) return a;
+        const price = prices[a.symbol];
+        const hit = a.condition==='above' ? price.mid>=a.value : price.mid<=a.value;
+        if(hit){
+          const text = `Price alert triggered — ${a.symbol} ${a.condition==='above'?'crossed above':'crossed below'} ${a.value.toFixed(digitsOf(a.symbol))}`;
+          notifications = [{id:uid('nt'), text, ts:now(), read:false, kind:'alert'}, ...notifications].slice(0,40);
+          toasts = [...toasts, {id:uid('t'), text, kind:'alert'}];
+          return {...a, triggered:true, active:false};
+        }
+        return a;
+      });
+      return {...state, prices, positions, pendingOrders, history, alerts, notifications, toasts, account:{...state.account, balance}};
+    }
+    default: return state;
+  }
+}
+
+/* ============================== SHARED UI ============================== */
+function Badge({children, tone='neutral', className=''}){
+  const tones = {
+    neutral: {bg:'var(--panel-2)', color:'var(--text-dim)', border:'var(--border)'},
+    buy: {bg:'var(--buy-bg)', color:'var(--buy)', border:'transparent'},
+    sell: {bg:'var(--sell-bg)', color:'var(--sell)', border:'transparent'},
+    brand: {bg:'var(--brand-bg)', color:'var(--brand)', border:'transparent'},
+    warn: {bg:'var(--warn-bg)', color:'var(--warn)', border:'transparent'},
+  };
+  const t = tones[tone]||tones.neutral;
+  return <span className={"inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold "+className} style={{background:t.bg, color:t.color, border:'1px solid '+t.border}}>{children}</span>;
+}
+
+function Button({children, onClick, variant='default', size='md', className='', disabled, type='button'}){
+  const base = "inline-flex items-center justify-center gap-1.5 font-semibold rounded-md transition-colors focus-ring disabled:opacity-40 disabled:cursor-not-allowed";
+  const sizes = { sm:'text-xs px-2.5 py-1.5', md:'text-sm px-3.5 py-2', lg:'text-sm px-4 py-2.5' };
+  const styleMap = {
+    default: {background:'var(--panel-2)', color:'var(--text)', border:'1px solid var(--border)'},
+    brand: {background:'var(--brand)', color:'#fff', border:'1px solid var(--brand)'},
+    buy: {background:'var(--buy)', color:'#06231C', border:'1px solid var(--buy)'},
+    sell: {background:'var(--sell)', color:'#2C0A10', border:'1px solid var(--sell)'},
+    ghost: {background:'transparent', color:'var(--text-dim)', border:'1px solid transparent'},
+    outline: {background:'transparent', color:'var(--text)', border:'1px solid var(--border)'},
+    danger: {background:'transparent', color:'var(--sell)', border:'1px solid var(--sell)'},
+  };
+  return <button type={type} disabled={disabled} onClick={onClick} className={base+' '+sizes[size]+' '+className} style={styleMap[variant]}>{children}</button>;
+}
+
+function Panel({children, className='', style={}}){
+  return <div className={"rounded-lg "+className} style={{background:'var(--panel)', border:'1px solid var(--border)', ...style}}>{children}</div>;
+}
+
+function Modal({title, onClose, children, width=440}){
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{background:'rgba(4,6,10,0.6)'}} onMouseDown={onClose}>
+      <div className="fadein w-full rounded-xl overflow-hidden" style={{maxWidth:width, background:'var(--panel)', border:'1px solid var(--border)'}} onMouseDown={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4" style={{borderBottom:'1px solid var(--border)'}}>
+          <h3 className="text-[15px] font-semibold" style={{color:'var(--text)'}}>{title}</h3>
+          <button onClick={onClose} className="focus-ring rounded p-1" style={{color:'var(--text-dim)'}}><Icon name="x" size={18}/></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({label, children}){
+  return (
+    <div className="mb-3.5">
+      <label className="block text-xs font-medium mb-1.5" style={{color:'var(--text-dim)'}}>{label}</label>
+      {children}
+    </div>
+  );
+}
+const inputStyle = {background:'var(--bg-elev)', border:'1px solid var(--border)', color:'var(--text)'};
+function TextInput(props){ return <input {...props} className={"w-full rounded-md px-3 py-2 text-sm mono focus-ring "+(props.className||'')} style={inputStyle}/>; }
+function Select({value,onChange,options,className=''}){
+  return (
+    <select value={value} onChange={onChange} className={"w-full rounded-md px-3 py-2 text-sm focus-ring "+className} style={inputStyle}>
+      {options.map(o=> <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
+}
+function Toggle({checked,onChange,label}){
+  return (
+    <button onClick={()=>onChange(!checked)} className="flex items-center justify-between w-full py-2 focus-ring rounded">
+      {label && <span className="text-sm" style={{color:'var(--text)'}}>{label}</span>}
+      <span className="relative inline-block w-10 h-5.5 rounded-full transition-colors" style={{background: checked?'var(--brand)':'var(--border)', height:22, width:40}}>
+        <span className="absolute top-0.5 rounded-full transition-transform" style={{width:18,height:18,background:'#fff',left:2, transform: checked?'translateX(18px)':'translateX(0)'}}/>
+      </span>
+    </button>
+  );
+}
+
+/* ============================== CHART ============================== */
+function sma(data, period){
+  return data.map((d,i)=>{
+    if(i<period-1) return null;
+    let sum=0; for(let k=i-period+1;k<=i;k++) sum+=data[k].c;
+    return sum/period;
+  });
+}
+function ema(data, period){
+  const k = 2/(period+1);
+  let prev = null;
+  return data.map((d,i)=>{
+    if(i===0){ prev=d.c; return prev; }
+    prev = d.c*k + prev*(1-k);
+    return prev;
+  });
+}
+function rsi(data, period=14){
+  let gains=0, losses=0;
+  const out = new Array(data.length).fill(null);
+  for(let i=1;i<data.length;i++){
+    const diff = data[i].c - data[i-1].c;
+    const g = diff>0?diff:0, l = diff<0?-diff:0;
+    if(i<=period){ gains+=g; losses+=l; if(i===period){ const rs=gains/(period)/((losses/period)||1e-9); out[i]=100-100/(1+rs); } }
+    else {
+      gains = (gains*(period-1)+g)/period; losses=(losses*(period-1)+l)/period;
+      const rs = gains/(losses||1e-9);
+      out[i] = 100-100/(1+rs);
+    }
+  }
+  return out;
+}
+
+function TradingChart({symbol, price, tf, chartType, indicators, digits}){
+  const [series, setSeries] = useState(()=>generateSeries(symbol, tf, price.mid));
+  useEffect(()=>{ setSeries(generateSeries(symbol, tf, price.mid)); /* eslint-disable-next-line */ }, [symbol, tf]);
+  useEffect(()=>{
+    setSeries(prev=>{
+      if(!prev.length) return prev;
+      const copy = prev.slice();
+      const last = {...copy[copy.length-1]};
+      last.c = price.mid;
+      last.h = Math.max(last.h, price.mid);
+      last.l = Math.min(last.l, price.mid);
+      copy[copy.length-1] = last;
+      return copy;
+    });
+  }, [price.mid]);
+
+  const W = 760, H = 340, padL = 8, padR = 56, padT = 14, padB = indicators.rsi?70:14;
+  const chartH = H - padT - padB;
+  const allVals = series.flatMap(d=>[d.h,d.l]);
+  const maxV = Math.max(...allVals), minV = Math.min(...allVals);
+  const range = (maxV-minV)||1;
+  const x = i => padL + (i/(series.length-1))*(W-padL-padR);
+  const y = v => padT + (1-(v-minV)/range)*chartH;
+  const candleW = Math.max(2, (W-padL-padR)/series.length*0.62);
+
+  const maData = indicators.ma ? sma(series,20) : null;
+  const emaData = indicators.ema ? ema(series,20) : null;
+  const rsiData = indicators.rsi ? rsi(series,14) : null;
+
+  const linePath = (getVal) => series.map((d,i)=> (i===0?'M':'L')+x(i)+','+y(getVal(d,i))).join(' ');
+
+  const up = price.dir>=0;
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{display:'block'}}>
+        {/* grid */}
+        {[0,0.25,0.5,0.75,1].map((f,idx)=>{
+          const v = minV+range*f;
+          return (
+            <g key={idx}>
+              <line x1={padL} x2={W-padR} y1={y(v)} y2={y(v)} stroke="var(--border-soft)" strokeWidth="1"/>
+              <text x={W-padR+6} y={y(v)+3} fontSize="9.5" fill="var(--text-faint)" className="mono">{v.toFixed(digits)}</text>
+            </g>
+          );
+        })}
+        {chartType==='candlestick' && series.map((d,i)=>{
+          const color = d.c>=d.o ? 'var(--buy)' : 'var(--sell)';
+          return (
+            <g key={i}>
+              <line x1={x(i)} x2={x(i)} y1={y(d.h)} y2={y(d.l)} stroke={color} strokeWidth="1"/>
+              <rect x={x(i)-candleW/2} y={Math.min(y(d.o),y(d.c))} width={candleW} height={Math.max(1,Math.abs(y(d.o)-y(d.c)))} fill={color}/>
+            </g>
+          );
+        })}
+        {chartType==='line' && <path d={linePath(d=>d.c)} fill="none" stroke="var(--brand)" strokeWidth="1.75"/>}
+        {chartType==='area' && (
+          <>
+            <path d={linePath(d=>d.c)+` L${x(series.length-1)},${padT+chartH} L${x(0)},${padT+chartH} Z`} fill="var(--brand-bg)"/>
+            <path d={linePath(d=>d.c)} fill="none" stroke="var(--brand)" strokeWidth="1.75"/>
+          </>
+        )}
+        {maData && <path d={series.map((d,i)=> maData[i]==null?null:(x(i)+','+y(maData[i]))).filter(Boolean).map((p,i,arr)=> (i===0?'M':'L')+p).join(' ')} fill="none" stroke="#FFB020" strokeWidth="1.5" opacity="0.9"/>}
+        {emaData && <path d={linePath((d,i)=>emaData[i])} fill="none" stroke="#B98CFF" strokeWidth="1.5" opacity="0.9"/>}
+        {/* current price line */}
+        <line x1={padL} x2={W-padR} y1={y(price.mid)} y2={y(price.mid)} stroke={up?'var(--buy)':'var(--sell)'} strokeDasharray="3,3" strokeWidth="1"/>
+        <rect x={W-padR} y={y(price.mid)-8} width={padR} height={16} fill={up?'var(--buy)':'var(--sell)'}/>
+        <text x={W-padR+4} y={y(price.mid)+3.5} fontSize="9.5" fontWeight="700" fill={up?'#06231C':'#2C0A10'} className="mono">{price.mid.toFixed(digits)}</text>
+
+        {indicators.rsi && rsiData && (()=>{
+          const rH = 50, rTop = H-padB+8;
+          const ry = v => rTop + (1-(v/100))*rH;
+          return (
+            <g>
+              <rect x={padL} y={rTop} width={W-padL-padR} height={rH} fill="var(--panel-2)" opacity="0.4"/>
+              <line x1={padL} x2={W-padR} y1={ry(70)} y2={ry(70)} stroke="var(--sell)" strokeDasharray="2,2" strokeWidth="0.75"/>
+              <line x1={padL} x2={W-padR} y1={ry(30)} y2={ry(30)} stroke="var(--buy)" strokeDasharray="2,2" strokeWidth="0.75"/>
+              <path d={series.map((d,i)=> rsiData[i]==null?null:(x(i)+','+ry(rsiData[i]))).filter(Boolean).map((p,i)=>(i===0?'M':'L')+p).join(' ')} fill="none" stroke="var(--brand)" strokeWidth="1.25"/>
+              <text x={padL+2} y={rTop+9} fontSize="8.5" fill="var(--text-faint)" className="mono">RSI 14</text>
+            </g>
+          );
+        })()}
+      </svg>
+    </div>
+  );
+}
+
+/* ============================== LOGIN ============================== */
+function LoginScreen({dispatch}){
+  const [lang, setLang] = useState('English');
+  const [theme, setTheme] = useState('dark');
+  useEffect(()=>{ document.documentElement.setAttribute('data-theme', theme); },[theme]);
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4" style={{background:'var(--bg)'}}>
+      <div className="w-full" style={{maxWidth:420}}>
+        <div className="flex items-center justify-center gap-2 mb-8">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{background:'var(--brand)'}}>
+            <Icon name="trending" size={20} className="text-white"/>
+          </div>
+          <span className="text-xl font-bold tracking-tight" style={{color:'var(--text)'}}>Voltrix Markets</span>
+        </div>
+        <Panel className="p-7">
+          <h1 className="text-lg font-semibold mb-1" style={{color:'var(--text)'}}>Sign in to your account</h1>
+          <p className="text-sm mb-6" style={{color:'var(--text-dim)'}}>Trade forex, metals and more on a professional terminal.</p>
+          <Field label="Email address"><TextInput placeholder="you@example.com" defaultValue="alex.morgan@example.com"/></Field>
+          <Field label="Password"><TextInput type="password" placeholder="••••••••" defaultValue="demopassword"/></Field>
+          <div className="flex items-center justify-between mb-5 text-xs" style={{color:'var(--text-dim)'}}>
+            <label className="flex items-center gap-1.5"><input type="checkbox" defaultChecked/> Remember me</label>
+            <button className="focus-ring hover:underline" style={{color:'var(--brand)'}}>Forgot password?</button>
+          </div>
+          <Button variant="brand" className="w-full mb-2.5" size="lg" onClick={()=>dispatch({type:'ADD_TOAST', text:'This is a UI demo — use Enter Demo Account below.', kind:'info'})}>Log In</Button>
+          <Button variant="buy" className="w-full mb-2.5" size="lg" onClick={()=>dispatch({type:'ENTER_DEMO'})}>Enter Demo Account</Button>
+          <Button variant="outline" className="w-full" size="lg">Create Account</Button>
+          <div className="flex items-center justify-between mt-6 pt-5" style={{borderTop:'1px solid var(--border)'}}>
+            <select value={lang} onChange={e=>setLang(e.target.value)} className="text-xs rounded px-2 py-1 focus-ring" style={inputStyle}>
+              <option>English</option><option>Español</option><option>Français</option><option>Deutsch</option>
+            </select>
+            <button onClick={()=>setTheme(t=>t==='dark'?'light':'dark')} className="flex items-center gap-1.5 text-xs focus-ring rounded px-2 py-1" style={{color:'var(--text-dim)'}}>
+              <Icon name={theme==='dark'?'moon':'sun'} size={14}/> {theme==='dark'?'Dark':'Light'}
+            </button>
+          </div>
+        </Panel>
+        <div className="flex items-center justify-center gap-1.5 mt-5 text-[11px]" style={{color:'var(--text-faint)'}}>
+          <Icon name="shield" size={13}/> 256-bit encryption · Segregated demo funds · No real transactions
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================== SHELL ============================== */
+const NAV = [
+  {key:'dashboard', label:'Dashboard', icon:'home'},
+  {key:'markets', label:'Markets', icon:'list'},
+  {key:'trade', label:'Trade', icon:'chart'},
+  {key:'positions', label:'Positions', icon:'layers'},
+  {key:'orders', label:'Orders', icon:'clock'},
+  {key:'history', label:'History', icon:'file'},
+  {key:'watchlist', label:'Watchlist', icon:'star'},
+  {key:'calendar', label:'Economic Calendar', icon:'calendar'},
+  {key:'news', label:'Market News', icon:'news'},
+  {key:'alerts', label:'Alerts', icon:'alert'},
+  {key:'analytics', label:'Analytics', icon:'gauge'},
+  {key:'reports', label:'Reports', icon:'file'},
+  {key:'wallet', label:'Wallet', icon:'wallet'},
+  {key:'settings', label:'Settings', icon:'settings'},
+  {key:'profile', label:'Profile', icon:'user'},
+  {key:'help', label:'Help / Support', icon:'globe'},
+];
+
+function Sidebar({state,dispatch,mobileOpen,setMobileOpen}){
+  const content = (
+    <div className="h-full flex flex-col" style={{background:'var(--bg-elev)'}}>
+      <div className="flex items-center gap-2 px-5 py-4" style={{borderBottom:'1px solid var(--border)'}}>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{background:'var(--brand)'}}>
+          <Icon name="trending" size={17} className="text-white"/>
+        </div>
+        <span className="font-bold text-[15px]" style={{color:'var(--text)'}}>Voltrix Markets</span>
+      </div>
+      <nav className="flex-1 overflow-y-auto py-3 px-2.5">
+        {NAV.map(item=>{
+          const active = state.page===item.key;
+          return (
+            <button key={item.key} onClick={()=>{dispatch({type:'SET_PAGE', page:item.key}); setMobileOpen(false);}}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md mb-0.5 text-[13px] font-medium transition-colors focus-ring"
+              style={{ background: active?'var(--brand-bg)':'transparent', color: active?'var(--brand)':'var(--text-dim)' }}>
+              <Icon name={item.icon} size={16}/> {item.label}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="p-3 mx-2.5 mb-3 rounded-lg" style={{background:'var(--panel-2)', border:'1px solid var(--border)'}}>
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[11px] font-semibold" style={{color:'var(--text-dim)'}}>SIMULATED MARKET DATA</span>
+          <Toggle checked={state.liveSim} onChange={()=>dispatch({type:'TOGGLE_SIM'})}/>
+        </div>
+        <p className="text-[10.5px]" style={{color:'var(--text-faint)'}}>Live Simulation: {state.liveSim?'ON':'OFF'}</p>
+      </div>
+    </div>
+  );
+  return (
+    <>
+      <div className="hidden md:block shrink-0" style={{width:224, borderRight:'1px solid var(--border)'}}>{content}</div>
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div className="absolute inset-0" style={{background:'rgba(0,0,0,0.5)'}} onClick={()=>setMobileOpen(false)}/>
+          <div className="absolute left-0 top-0 bottom-0 slideup" style={{width:250}}>{content}</div>
+        </div>
+      )}
+    </>
+  );
+}
+
+function NotifBell({state,dispatch}){
+  const [open,setOpen] = useState(false);
+  const unread = state.notifications.filter(n=>!n.read).length;
+  return (
+    <div className="relative">
+      <button onClick={()=>{setOpen(o=>!o); if(!open) dispatch({type:'MARK_NOTIFS_READ'});}} className="relative p-2 rounded-md focus-ring" style={{color:'var(--text-dim)'}}>
+        <Icon name="bell" size={18}/>
+        {unread>0 && <span className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full text-[9px] flex items-center justify-center font-bold" style={{background:'var(--sell)', color:'#fff'}}>{unread}</span>}
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-2 w-80 rounded-lg z-30 fadein overflow-hidden" style={{background:'var(--panel)', border:'1px solid var(--border)'}}>
+          <div className="px-4 py-3 text-sm font-semibold" style={{borderBottom:'1px solid var(--border)', color:'var(--text)'}}>Notifications</div>
+          <div className="max-h-80 overflow-y-auto">
+            {state.notifications.length===0 && <div className="p-4 text-sm" style={{color:'var(--text-faint)'}}>No notifications yet.</div>}
+            {state.notifications.map(n=>(
+              <div key={n.id} className="px-4 py-2.5 text-[12.5px]" style={{borderBottom:'1px solid var(--border-soft)', color:'var(--text)'}}>
+                <div>{n.text}</div>
+                <div className="text-[10.5px] mt-0.5" style={{color:'var(--text-faint)'}}>{timeAgo(n.ts)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Topbar({state,dispatch,setMobileOpen}){
+  const acct = useAccountMetrics(state);
+  return (
+    <div className="flex items-center justify-between px-3 md:px-5 py-2.5 gap-2" style={{borderBottom:'1px solid var(--border)', background:'var(--bg-elev)'}}>
+      <div className="flex items-center gap-2">
+        <button className="md:hidden p-2 rounded-md focus-ring" style={{color:'var(--text-dim)'}} onClick={()=>setMobileOpen(true)}><Icon name="menu" size={19}/></button>
+        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold" style={{background:'var(--brand-bg)', color:'var(--brand)'}}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{background: state.liveSim?'var(--buy)':'var(--text-faint)'}}/> {state.liveSim?'Market Open':'Simulation Paused'}
+        </div>
+      </div>
+      <div className="hidden lg:flex items-center gap-4 mono text-[12px]" style={{color:'var(--text-dim)'}}>
+        <span>Balance <b style={{color:'var(--text)'}}>{fmtMoney(state.account.balance)}</b></span>
+        <span>Equity <b style={{color:'var(--text)'}}>{fmtMoney(acct.equity)}</b></span>
+        <span>Free Margin <b style={{color:'var(--text)'}}>{fmtMoney(acct.freeMargin)}</b></span>
+      </div>
+      <div className="flex items-center gap-1">
+        <Badge tone="brand">DEMO ACCOUNT</Badge>
+        <NotifBell state={state} dispatch={dispatch}/>
+        <button onClick={()=>{ const t=state.theme==='dark'?'light':'dark'; dispatch({type:'SET_THEME', theme:t}); }} className="p-2 rounded-md focus-ring" style={{color:'var(--text-dim)'}}>
+          <Icon name={state.theme==='dark'?'sun':'moon'} size={18}/>
+        </button>
+        <button onClick={()=>dispatch({type:'SET_PAGE', page:'profile'})} className="w-8 h-8 rounded-full flex items-center justify-center focus-ring" style={{background:'var(--panel-2)', border:'1px solid var(--border)'}}>
+          <Icon name="user" size={15} style={{color:'var(--text-dim)'}}/>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function MobileNav({state,dispatch,setMobileOpen}){
+  const items = [
+    {key:'dashboard', icon:'home', label:'Home'},
+    {key:'markets', icon:'list', label:'Markets'},
+    {key:'trade', icon:'chart', label:'Trade', center:true},
+    {key:'positions', icon:'layers', label:'Positions'},
+    {key:'menu', icon:'menu', label:'Menu'},
+  ];
+  return (
+    <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch" style={{background:'var(--bg-elev)', borderTop:'1px solid var(--border)', height:60}}>
+      {items.map(it=>{
+        if(it.key==='menu') return (
+          <button key={it.key} onClick={()=>setMobileOpen(true)} className="flex-1 flex flex-col items-center justify-center gap-0.5 focus-ring" style={{color:'var(--text-dim)'}}>
+            <Icon name={it.icon} size={19}/><span className="text-[10px]">{it.label}</span>
+          </button>
+        );
+        const active = state.page===it.key;
+        if(it.center) return (
+          <button key={it.key} onClick={()=>dispatch({type:'SET_PAGE', page:'trade'})} className="flex-1 flex flex-col items-center justify-center focus-ring">
+            <span className="w-11 h-11 rounded-full flex items-center justify-center -mt-5" style={{background:'var(--brand)', boxShadow:'0 4px 14px rgba(76,127,255,0.5)'}}>
+              <Icon name={it.icon} size={20} className="text-white"/>
+            </span>
+          </button>
+        );
+        return (
+          <button key={it.key} onClick={()=>dispatch({type:'SET_PAGE', page:it.key})} className="flex-1 flex flex-col items-center justify-center gap-0.5 focus-ring" style={{color: active?'var(--brand)':'var(--text-dim)'}}>
+            <Icon name={it.icon} size={19}/><span className="text-[10px]">{it.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ToastContainer({toasts, dispatch}){
+  useEffect(()=>{
+    if(toasts.length===0) return;
+    const t = setTimeout(()=> dispatch({type:'DISMISS_TOAST', id: toasts[0].id}), 4200);
+    return ()=>clearTimeout(t);
+  }, [toasts.length]);
+  const toneColor = k => k==='success' ? 'var(--buy)' : k==='warn' ? 'var(--warn)' : k==='alert' ? 'var(--warn)' : 'var(--brand)';
+  return (
+    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2" style={{maxWidth:320}}>
+      {toasts.slice(-4).map(t=>(
+        <div key={t.id} className="toastin rounded-lg px-4 py-3 text-[13px] shadow-lg flex items-start gap-2" style={{background:'var(--panel)', border:'1px solid var(--border)', borderLeft:'3px solid '+toneColor(t.kind), color:'var(--text)'}}>
+          <span className="flex-1">{t.text}</span>
+          <button onClick={()=>dispatch({type:'DISMISS_TOAST', id:t.id})} style={{color:'var(--text-faint)'}}><Icon name="x" size={14}/></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ============================== DERIVED METRICS ============================== */
+function useAccountMetrics(state){
+  return useMemo(()=>{
+    let usedMargin=0, floating=0;
+    state.positions.forEach(p=>{
+      const price = state.prices[p.symbol];
+      usedMargin += calcMargin(p.symbol, p.volume, p.openPrice);
+      floating += calcPnL(p, price) + p.commission + p.swap;
+    });
+    const equity = state.account.balance + floating;
+    const freeMargin = equity - usedMargin;
+    const marginLevel = usedMargin>0 ? (equity/usedMargin*100) : 0;
+    const todayPnl = floating;
+    return {usedMargin, floating, equity, freeMargin, marginLevel, todayPnl};
+  }, [state.positions, state.prices, state.account.balance]);
+}
+
+/* ============================== PAGES ============================== */
+function StatCard({label, value, sub, tone}){
+  return (
+    <Panel className="p-4">
+      <div className="text-[11px] font-medium mb-1.5" style={{color:'var(--text-dim)'}}>{label}</div>
+      <div className="text-lg font-bold mono" style={{color: tone==='buy'?'var(--buy)':tone==='sell'?'var(--sell)':'var(--text)'}}>{value}</div>
+      {sub && <div className="text-[11px] mt-1" style={{color:'var(--text-faint)'}}>{sub}</div>}
+    </Panel>
+  );
+}
+
+function PriceMini({sym, price, digits}){
+  const up = price.dir>=0;
+  const chgPct = ((price.mid-price.dayOpen)/price.dayOpen*100);
+  return (
+    <div className="flex items-center justify-between py-2 px-3">
+      <span className="text-[13px] font-semibold" style={{color:'var(--text)'}}>{sym}</span>
+      <div className="text-right">
+        <div className="mono text-[13px] font-semibold" style={{color: up?'var(--buy)':'var(--sell)'}}>{price.mid.toFixed(digits)}</div>
+        <div className="text-[10.5px] mono" style={{color: up?'var(--buy)':'var(--sell)'}}>{fmtPct(chgPct)}</div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardPage({state,dispatch}){
+  const m = useAccountMetrics(state);
+  const favs = INSTRUMENTS.filter(i=>state.favorites.includes(i.symbol));
+  return (
+    <div className="p-4 md:p-6 space-y-5">
+      <div>
+        <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Welcome back, {state.account.name.split(' ')[0]}</h1>
+        <p className="text-sm" style={{color:'var(--text-dim)'}}>Here's what's happening with your demo account today.</p>
+      </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Balance" value={fmtMoney(state.account.balance)}/>
+        <StatCard label="Equity" value={fmtMoney(m.equity)}/>
+        <StatCard label="Free Margin" value={fmtMoney(m.freeMargin)}/>
+        <StatCard label="Used Margin" value={fmtMoney(m.usedMargin)}/>
+        <StatCard label="Margin Level" value={m.marginLevel? m.marginLevel.toFixed(2)+'%' : '—'}/>
+        <StatCard label="Unrealized P&L" value={fmtMoney(m.floating,{plus:true})} tone={m.floating>=0?'buy':'sell'}/>
+        <StatCard label="Today's P&L" value={fmtMoney(m.todayPnl,{plus:true})} tone={m.todayPnl>=0?'buy':'sell'}/>
+        <StatCard label="Open Positions" value={state.positions.length}/>
+      </div>
+      <div className="grid lg:grid-cols-3 gap-4">
+        <Panel className="lg:col-span-2 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>{state.selectedSymbol} — Live Chart</h2>
+            <Button size="sm" variant="outline" onClick={()=>dispatch({type:'SET_PAGE', page:'trade'})}>Open Full Chart</Button>
+          </div>
+          <TradingChart symbol={state.selectedSymbol} price={state.prices[state.selectedSymbol]} tf={state.chartTF} chartType={state.chartType} indicators={state.chartIndicators} digits={digitsOf(state.selectedSymbol)}/>
+        </Panel>
+        <Panel className="p-0 overflow-hidden">
+          <div className="px-4 py-3 flex items-center justify-between" style={{borderBottom:'1px solid var(--border)'}}>
+            <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Favorites</h2>
+            <Icon name="star" size={14} style={{color:'var(--warn)'}}/>
+          </div>
+          <div className="divide-y" style={{borderColor:'var(--border-soft)'}}>
+            {favs.map(i=><div key={i.symbol} className="cursor-pointer hover:bg-black/5" onClick={()=>dispatch({type:'SELECT_SYMBOL', symbol:i.symbol})}><PriceMini sym={i.symbol} price={state.prices[i.symbol]} digits={digitsOf(i.symbol)}/></div>)}
+          </div>
+        </Panel>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Panel className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Open Positions</h2>
+            <Button size="sm" variant="ghost" onClick={()=>dispatch({type:'SET_PAGE', page:'positions'})}>View all</Button>
+          </div>
+          <div className="space-y-2">
+            {state.positions.slice(0,3).map(p=>{
+              const price = state.prices[p.symbol];
+              const pnl = calcPnL(p,price);
+              return (
+                <div key={p.id} className="flex items-center justify-between text-[12.5px] py-1.5">
+                  <div className="flex items-center gap-2">
+                    <Badge tone={p.type==='BUY'?'buy':'sell'}>{p.type}</Badge>
+                    <span style={{color:'var(--text)'}} className="font-medium">{p.symbol}</span>
+                    <span className="mono" style={{color:'var(--text-faint)'}}>{fmt(p.volume,2)}</span>
+                  </div>
+                  <span className="mono font-semibold" style={{color: pnl>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(pnl,{plus:true})}</span>
+                </div>
+              );
+            })}
+            {state.positions.length===0 && <p className="text-sm py-3" style={{color:'var(--text-faint)'}}>No open positions.</p>}
+          </div>
+        </Panel>
+        <Panel className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Recent Activity</h2>
+            <Button size="sm" variant="ghost" onClick={()=>dispatch({type:'SET_PAGE', page:'history'})}>View history</Button>
+          </div>
+          <div className="space-y-2">
+            {state.history.slice(0,4).map(h=>(
+              <div key={h.id} className="flex items-center justify-between text-[12.5px] py-1.5">
+                <div className="flex items-center gap-2">
+                  <Badge tone={h.type==='BUY'?'buy':'sell'}>{h.type}</Badge>
+                  <span style={{color:'var(--text)'}} className="font-medium">{h.symbol}</span>
+                </div>
+                <span className="mono font-semibold" style={{color: h.profit>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(h.profit,{plus:true})}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+    </div>
+  );
+}
+
+function MarketsPage({state,dispatch}){
+  let rows = INSTRUMENTS.map(i=>{
+    const p = state.prices[i.symbol];
+    return {...i, ...p, digits: digitsOf(i.symbol), chgPct: (p.mid-p.dayOpen)/p.dayOpen*100, spread: (p.ask-p.bid)/pipSize(i.symbol)};
+  });
+  if(state.marketFilter) rows = rows.filter(r=>r.symbol.toLowerCase().includes(state.marketFilter.toLowerCase()));
+  const {key,dir} = state.marketSort;
+  rows.sort((a,b)=> a[key]>b[key]?dir:a[key]<b[key]?-dir:0);
+  const Th = ({label,k})=>(
+    <th onClick={()=>dispatch({type:'MARKET_SORT', key:k})} className="text-left px-3 py-2.5 text-[11px] font-semibold cursor-pointer select-none whitespace-nowrap" style={{color:'var(--text-faint)'}}>
+      {label} {state.marketSort.key===k && (state.marketSort.dir>0?'▲':'▼')}
+    </th>
+  );
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Markets</h1>
+        <div className="relative" style={{width:240}}>
+          <Icon name="search" size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{color:'var(--text-faint)'}}/>
+          <TextInput placeholder="Search instruments..." className="pl-8" value={state.marketFilter} onChange={e=>dispatch({type:'MARKET_FILTER', value:e.target.value})}/>
+        </div>
+      </div>
+      <Panel className="overflow-hidden">
+        <div className="scrollx">
+          <table className="w-full">
+            <thead style={{background:'var(--panel-2)'}}>
+              <tr>
+                <Th label="Symbol" k="symbol"/><Th label="Bid" k="bid"/><Th label="Ask" k="ask"/><Th label="Spread" k="spread"/>
+                <Th label="Change" k="chgPct"/><Th label="High" k="high"/><Th label="Low" k="low"/>
+                <th className="px-3 py-2.5 text-[11px] font-semibold" style={{color:'var(--text-faint)'}}>Status</th>
+                <th className="px-3 py-2.5 text-[11px] font-semibold" style={{color:'var(--text-faint)'}}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r=>{
+                const up = r.mid>=r.dayOpen;
+                const isFav = state.favorites.includes(r.symbol);
+                return (
+                  <tr key={r.symbol} className="cursor-pointer hover:bg-black/5" style={{borderTop:'1px solid var(--border-soft)'}} onClick={()=>dispatch({type:'SELECT_SYMBOL', symbol:r.symbol})}>
+                    <td className="px-3 py-2.5 text-[13px] font-semibold" style={{color:'var(--text)'}}>{r.symbol}<span className="ml-1.5 text-[10px] font-normal" style={{color:'var(--text-faint)'}}>{r.group}</span></td>
+                    <td className="px-3 py-2.5 mono text-[13px]" style={{color:'var(--sell)'}}>{r.bid.toFixed(r.digits)}</td>
+                    <td className="px-3 py-2.5 mono text-[13px]" style={{color:'var(--buy)'}}>{r.ask.toFixed(r.digits)}</td>
+                    <td className="px-3 py-2.5 mono text-[12px]" style={{color:'var(--text-dim)'}}>{r.spread.toFixed(1)}</td>
+                    <td className="px-3 py-2.5 mono text-[12.5px] font-semibold" style={{color:up?'var(--buy)':'var(--sell)'}}>{fmtPct(r.chgPct)}</td>
+                    <td className="px-3 py-2.5 mono text-[12px]" style={{color:'var(--text-dim)'}}>{r.high.toFixed(r.digits)}</td>
+                    <td className="px-3 py-2.5 mono text-[12px]" style={{color:'var(--text-dim)'}}>{r.low.toFixed(r.digits)}</td>
+                    <td className="px-3 py-2.5"><Badge tone="buy">Open</Badge></td>
+                    <td className="px-3 py-2.5" onClick={e=>e.stopPropagation()}>
+                      <button onClick={()=>dispatch({type:'TOGGLE_FAVORITE', symbol:r.symbol})} className="focus-ring" style={{color: isFav?'var(--warn)':'var(--text-faint)'}}>
+                        {isFav ? <IconStarFilled size={16}/> : <Icon name="star" size={16}/>}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function OrderPanel({state,dispatch,symbol}){
+  const inst = INSTRUMENTS.find(i=>i.symbol===symbol);
+  const price = state.prices[symbol];
+  const digits = digitsOf(symbol);
+  const [orderType, setOrderType] = useState('Market');
+  const [direction, setDirection] = useState('BUY');
+  const [volume, setVolume] = useState(state.settings.defaultLot);
+  const [entryPrice, setEntryPrice] = useState(price.mid);
+  const [useSL, setUseSL] = useState(false);
+  const [useTP, setUseTP] = useState(false);
+  const [sl, setSl] = useState('');
+  const [tp, setTp] = useState('');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEffect(()=>{ setEntryPrice(price.mid); }, [symbol]);
+
+  const marginEst = calcMargin(symbol, volume, direction==='BUY'?price.ask:price.bid);
+  const pipVal = calcPipValue(symbol, volume);
+  const slNum = useSL ? parseFloat(sl)||0 : 0;
+  const tpNum = useTP ? parseFloat(tp)||0 : 0;
+  const entry = direction==='BUY'?price.ask:price.bid;
+  const riskPips = slNum ? Math.abs(entry-slNum)/pipSize(symbol) : 0;
+  const rewardPips = tpNum ? Math.abs(tpNum-entry)/pipSize(symbol) : 0;
+  const riskAmt = riskPips*pipVal, rewardAmt = rewardPips*pipVal;
+
+  function submit(){
+    dispatch({type:'PLACE_ORDER', payload:{symbol, orderType, direction, volume, entryPrice: orderType==='Market'?entry:entryPrice, sl:slNum, tp:tpNum}});
+    dispatch({type:'ADD_TOAST', text: orderType==='Market' ? `Demo order executed successfully — ${direction} ${symbol}` : `Pending order created — ${direction} ${orderType} ${symbol}`, kind:'success'});
+    dispatch({type:'ADD_NOTIF', text: orderType==='Market' ? `Demo order executed — ${direction} ${fmt(volume,2)} lots ${symbol}` : `Pending order created — ${symbol} ${orderType}`, kind:'info'});
+    setConfirmOpen(false);
+  }
+  function tryPlace(){
+    if(state.settings.confirmBeforeOrder && !state.settings.oneClickTrading) setConfirmOpen(true); else submit();
+  }
+
+  return (
+    <Panel className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-[15px] font-bold" style={{color:'var(--text)'}}>{symbol}</div>
+          <div className="text-[10.5px]" style={{color:'var(--text-faint)'}}>{inst.group} · Leverage 1:{LEVERAGE}</div>
+        </div>
+        <div className="text-right">
+          <div className="mono text-[11px]" style={{color:'var(--text-dim)'}}>Spread</div>
+          <div className="mono text-[12px] font-semibold" style={{color:'var(--text)'}}>{((price.ask-price.bid)/pipSize(symbol)).toFixed(1)} pips</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <button onClick={()=>setDirection('SELL')} className="rounded-md py-2.5 text-center focus-ring" style={{background: direction==='SELL'?'var(--sell-bg)':'var(--panel-2)', border:'1px solid '+(direction==='SELL'?'var(--sell)':'var(--border)')}}>
+          <div className="text-[10px] font-semibold" style={{color:'var(--sell)'}}>SELL</div>
+          <div className="mono text-base font-bold" style={{color:'var(--sell)'}}>{price.bid.toFixed(digits)}</div>
+        </button>
+        <button onClick={()=>setDirection('BUY')} className="rounded-md py-2.5 text-center focus-ring" style={{background: direction==='BUY'?'var(--buy-bg)':'var(--panel-2)', border:'1px solid '+(direction==='BUY'?'var(--buy)':'var(--border)')}}>
+          <div className="text-[10px] font-semibold" style={{color:'var(--buy)'}}>BUY</div>
+          <div className="mono text-base font-bold" style={{color:'var(--buy)'}}>{price.ask.toFixed(digits)}</div>
+        </button>
+      </div>
+      <Field label="Order Type">
+        <div className="grid grid-cols-3 gap-1.5">
+          {['Market','Limit','Stop'].map(t=>(
+            <button key={t} onClick={()=>setOrderType(t)} className="py-1.5 rounded-md text-xs font-semibold focus-ring" style={{background: orderType===t?'var(--brand-bg)':'var(--panel-2)', color: orderType===t?'var(--brand)':'var(--text-dim)', border:'1px solid '+(orderType===t?'var(--brand)':'var(--border)')}}>{t}</button>
+          ))}
+        </div>
+      </Field>
+      {orderType!=='Market' && (
+        <Field label={orderType+' Entry Price'}>
+          <TextInput type="number" step={pipSize(symbol)} value={entryPrice} onChange={e=>setEntryPrice(parseFloat(e.target.value)||0)}/>
+        </Field>
+      )}
+      <Field label="Volume (Lots)">
+        <div className="flex items-center gap-2">
+          <button onClick={()=>setVolume(v=>Math.max(0.01, Math.round((v-0.01)*100)/100))} className="w-8 h-8 rounded-md flex items-center justify-center focus-ring" style={{background:'var(--panel-2)', border:'1px solid var(--border)'}}><Icon name="minus" size={14}/></button>
+          <TextInput type="number" step="0.01" min="0.01" value={volume} onChange={e=>setVolume(parseFloat(e.target.value)||0.01)} className="text-center"/>
+          <button onClick={()=>setVolume(v=>Math.round((v+0.01)*100)/100)} className="w-8 h-8 rounded-md flex items-center justify-center focus-ring" style={{background:'var(--panel-2)', border:'1px solid var(--border)'}}><Icon name="plus" size={14}/></button>
+        </div>
+      </Field>
+      <div className="grid grid-cols-2 gap-3 mb-1">
+        <Field label={<span className="flex items-center gap-1.5"><input type="checkbox" checked={useSL} onChange={e=>setUseSL(e.target.checked)}/> Stop Loss</span>}>
+          <TextInput type="number" step={pipSize(symbol)} disabled={!useSL} value={sl} onChange={e=>setSl(e.target.value)} placeholder={entry.toFixed(digits)}/>
+        </Field>
+        <Field label={<span className="flex items-center gap-1.5"><input type="checkbox" checked={useTP} onChange={e=>setUseTP(e.target.checked)}/> Take Profit</span>}>
+          <TextInput type="number" step={pipSize(symbol)} disabled={!useTP} value={tp} onChange={e=>setTp(e.target.value)} placeholder={entry.toFixed(digits)}/>
+        </Field>
+      </div>
+      <div className="rounded-md p-3 my-3 space-y-1.5 text-[12px]" style={{background:'var(--panel-2)'}}>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Estimated Margin</span><span className="mono font-medium" style={{color:'var(--text)'}}>{fmtMoney(marginEst)}</span></div>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Pip Value</span><span className="mono font-medium" style={{color:'var(--text)'}}>{fmtMoney(pipVal)}</span></div>
+        {useSL && <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Potential Risk</span><span className="mono font-medium" style={{color:'var(--sell)'}}>{fmtMoney(riskAmt)}</span></div>}
+        {useTP && <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Potential Reward</span><span className="mono font-medium" style={{color:'var(--buy)'}}>{fmtMoney(rewardAmt)}</span></div>}
+        {useSL && useTP && riskAmt>0 && <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Risk/Reward Ratio</span><span className="mono font-medium" style={{color:'var(--text)'}}>1:{(rewardAmt/riskAmt).toFixed(2)}</span></div>}
+      </div>
+      <Button variant={direction==='BUY'?'buy':'sell'} size="lg" className="w-full" onClick={tryPlace}>{direction} {symbol}</Button>
+
+      {confirmOpen && (
+        <Modal title="Confirm Order" onClose={()=>setConfirmOpen(false)} width={380}>
+          <p className="text-sm mb-4" style={{color:'var(--text-dim)'}}>Place a {orderType.toLowerCase()} {direction.toLowerCase()} order for <b style={{color:'var(--text)'}}>{fmt(volume,2)} lots</b> of <b style={{color:'var(--text)'}}>{symbol}</b>?</p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={()=>setConfirmOpen(false)}>Cancel</Button>
+            <Button variant={direction==='BUY'?'buy':'sell'} className="flex-1" onClick={submit}>Confirm</Button>
+          </div>
+        </Modal>
+      )}
+    </Panel>
+  );
+}
+
+function TradePage({state,dispatch}){
+  const symbol = state.selectedSymbol;
+  const price = state.prices[symbol];
+  const digits = digitsOf(symbol);
+  const chgPct = (price.mid-price.dayOpen)/price.dayOpen*100;
+  const up = price.mid>=price.dayOpen;
+  const TFS = ['1m','5m','15m','30m','1H','4H','1D','1W','1M'];
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        {INSTRUMENTS.map(i=>(
+          <button key={i.symbol} onClick={()=>dispatch({type:'SELECT_SYMBOL', symbol:i.symbol})} className="px-3 py-1.5 rounded-md text-xs font-semibold focus-ring whitespace-nowrap" style={{background: symbol===i.symbol?'var(--brand-bg)':'var(--panel-2)', color: symbol===i.symbol?'var(--brand)':'var(--text-dim)', border:'1px solid '+(symbol===i.symbol?'var(--brand)':'var(--border)')}}>{i.symbol}</button>
+        ))}
+      </div>
+      <div className="grid lg:grid-cols-[1fr_340px] gap-4">
+        <Panel className="p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div className="flex items-baseline gap-3 flex-wrap">
+              <h2 className="text-lg font-bold" style={{color:'var(--text)'}}>{symbol}</h2>
+              <span className="mono text-xl font-bold" style={{color: up?'var(--buy)':'var(--sell)'}}>{price.mid.toFixed(digits)}</span>
+              <span className="mono text-sm font-semibold" style={{color: up?'var(--buy)':'var(--sell)'}}>{fmtPct(chgPct)}</span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] mono" style={{color:'var(--text-dim)'}}>
+              <span>Bid <b style={{color:'var(--sell)'}}>{price.bid.toFixed(digits)}</b></span>
+              <span>Ask <b style={{color:'var(--buy)'}}>{price.ask.toFixed(digits)}</b></span>
+              <span>High <b style={{color:'var(--text)'}}>{price.high.toFixed(digits)}</b></span>
+              <span>Low <b style={{color:'var(--text)'}}>{price.low.toFixed(digits)}</b></span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div className="flex items-center gap-1 flex-wrap">
+              {TFS.map(tf=>(
+                <button key={tf} onClick={()=>dispatch({type:'SET_CHART_TF', tf})} className="px-2 py-1 rounded text-[11px] font-semibold focus-ring" style={{background: state.chartTF===tf?'var(--brand)':'transparent', color: state.chartTF===tf?'#fff':'var(--text-dim)'}}>{tf}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              {[['candlestick','Candles'],['line','Line'],['area','Area']].map(([v,l])=>(
+                <button key={v} onClick={()=>dispatch({type:'SET_CHART_TYPE', ct:v})} className="px-2 py-1 rounded text-[11px] font-semibold focus-ring" style={{background: state.chartType===v?'var(--panel-2)':'transparent', color: state.chartType===v?'var(--text)':'var(--text-faint)', border:'1px solid '+(state.chartType===v?'var(--border)':'transparent')}}>{l}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+            {[['ma','MA 20'],['ema','EMA 20'],['rsi','RSI 14']].map(([k,l])=>(
+              <button key={k} onClick={()=>dispatch({type:'TOGGLE_INDICATOR', key:k})} className="px-2.5 py-1 rounded-full text-[10.5px] font-semibold focus-ring" style={{background: state.chartIndicators[k]?'var(--brand-bg)':'var(--panel-2)', color: state.chartIndicators[k]?'var(--brand)':'var(--text-faint)', border:'1px solid var(--border)'}}>{l}</button>
+            ))}
+            <span className="text-[10.5px] ml-auto" style={{color:'var(--text-faint)'}}>Drawing tools: trend line · horizontal · rectangle · Fibonacci (hover chart)</span>
+          </div>
+          <TradingChart symbol={symbol} price={price} tf={state.chartTF} chartType={state.chartType} indicators={state.chartIndicators} digits={digits}/>
+        </Panel>
+        <OrderPanel state={state} dispatch={dispatch} symbol={symbol}/>
+      </div>
+      <PositionsTable state={state} dispatch={dispatch} compact/>
+    </div>
+  );
+}
+
+function ModifyPositionModal({pos, onClose, dispatch, digits}){
+  const [sl,setSl] = useState(pos.sl||'');
+  const [tp,setTp] = useState(pos.tp||'');
+  return (
+    <Modal title={`Modify ${pos.symbol} #${pos.ticket}`} onClose={onClose} width={380}>
+      <Field label="Stop Loss"><TextInput type="number" step={pipSize(pos.symbol)} value={sl} onChange={e=>setSl(e.target.value)}/></Field>
+      <Field label="Take Profit"><TextInput type="number" step={pipSize(pos.symbol)} value={tp} onChange={e=>setTp(e.target.value)}/></Field>
+      <div className="flex gap-2 mt-2">
+        <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+        <Button variant="brand" className="flex-1" onClick={()=>{dispatch({type:'MODIFY_POSITION', id:pos.id, sl:parseFloat(sl)||0, tp:parseFloat(tp)||0}); dispatch({type:'ADD_TOAST', text:'Position updated.', kind:'success'}); onClose();}}>Save Changes</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function ClosePositionModal({pos, price, onClose, dispatch, fraction, digits}){
+  const pnl = calcPnL(pos, price) * fraction;
+  return (
+    <Modal title={`Close ${pos.symbol} ${pos.type} position?`} onClose={onClose} width={380}>
+      <div className="rounded-md p-3 mb-4 space-y-1.5 text-[12.5px]" style={{background:'var(--panel-2)'}}>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Entry price</span><span className="mono" style={{color:'var(--text)'}}>{pos.openPrice.toFixed(digits)}</span></div>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Current price</span><span className="mono" style={{color:'var(--text)'}}>{(pos.type==='BUY'?price.bid:price.ask).toFixed(digits)}</span></div>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Volume</span><span className="mono" style={{color:'var(--text)'}}>{fmt(pos.volume*fraction,2)} lots</span></div>
+        <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Estimated P&L</span><span className="mono font-semibold" style={{color: pnl>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(pnl,{plus:true})}</span></div>
+      </div>
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+        <Button variant="sell" className="flex-1" onClick={()=>{dispatch({type:'CLOSE_POSITION', id:pos.id, fraction}); dispatch({type:'ADD_TOAST', text:`Position closed — ${fmtMoney(pnl,{plus:true})}`, kind: pnl>=0?'success':'warn'}); onClose();}}>Close Position</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function PositionsTable({state,dispatch,compact}){
+  const [modifyPos, setModifyPos] = useState(null);
+  const [closePos, setClosePos] = useState(null);
+  const [closeFraction, setCloseFraction] = useState(1);
+  return (
+    <Panel className="overflow-hidden">
+      <div className="px-4 py-3 flex items-center justify-between" style={{borderBottom:'1px solid var(--border)'}}>
+        <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>Open Positions ({state.positions.length})</h2>
+      </div>
+      <div className="scrollx">
+        <table className="w-full">
+          <thead style={{background:'var(--panel-2)'}}>
+            <tr>{['Ticket','Symbol','Type','Volume','Open Price','Current','SL','TP','Swap','Comm.','P&L','Duration','Actions'].map(h=><th key={h} className="text-left px-3 py-2 text-[10.5px] font-semibold whitespace-nowrap" style={{color:'var(--text-faint)'}}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {state.positions.map(p=>{
+              const price = state.prices[p.symbol];
+              const digits = digitsOf(p.symbol);
+              const pnl = calcPnL(p,price);
+              const cur = p.type==='BUY'?price.bid:price.ask;
+              const dur = Math.floor((now()-p.openTs)/60000);
+              return (
+                <tr key={p.id} style={{borderTop:'1px solid var(--border-soft)'}}>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text-dim)'}}>#{p.ticket}</td>
+                  <td className="px-3 py-2 text-[12.5px] font-semibold" style={{color:'var(--text)'}}>{p.symbol}</td>
+                  <td className="px-3 py-2"><Badge tone={p.type==='BUY'?'buy':'sell'}>{p.type}</Badge></td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{fmt(p.volume,2)}</td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{p.openPrice.toFixed(digits)}</td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{cur.toFixed(digits)}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{p.sl?p.sl.toFixed(digits):'—'}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{p.tp?p.tp.toFixed(digits):'—'}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{fmtMoney(p.swap)}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{fmtMoney(p.commission)}</td>
+                  <td className="px-3 py-2 mono text-[12.5px] font-bold" style={{color: pnl>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(pnl,{plus:true})}</td>
+                  <td className="px-3 py-2 mono text-[11px]" style={{color:'var(--text-faint)'}}>{dur}m</td>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      <button title="Modify" onClick={()=>setModifyPos(p)} className="p-1.5 rounded focus-ring" style={{color:'var(--text-dim)', background:'var(--panel-2)'}}><Icon name="edit" size={13}/></button>
+                      <button title="Partial Close" onClick={()=>{setClosePos(p); setCloseFraction(0.5);}} className="p-1.5 rounded focus-ring" style={{color:'var(--text-dim)', background:'var(--panel-2)'}}><Icon name="layers" size={13}/></button>
+                      <button title="Close" onClick={()=>{setClosePos(p); setCloseFraction(1);}} className="p-1.5 rounded focus-ring" style={{color:'var(--sell)', background:'var(--sell-bg)'}}><Icon name="x" size={13}/></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {state.positions.length===0 && <tr><td colSpan={13} className="text-center py-6 text-sm" style={{color:'var(--text-faint)'}}>No open positions.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {modifyPos && <ModifyPositionModal pos={modifyPos} onClose={()=>setModifyPos(null)} dispatch={dispatch} digits={digitsOf(modifyPos.symbol)}/>}
+      {closePos && <ClosePositionModal pos={closePos} price={state.prices[closePos.symbol]} fraction={closeFraction} onClose={()=>setClosePos(null)} dispatch={dispatch} digits={digitsOf(closePos.symbol)}/>}
+    </Panel>
+  );
+}
+
+function PositionsPage({state,dispatch}){
+  return <div className="p-4 md:p-6 space-y-4"><h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Open Positions</h1><PositionsTable state={state} dispatch={dispatch}/></div>;
+}
+
+function PendingOrdersPage({state,dispatch}){
+  const [modOrd,setModOrd] = useState(null);
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Pending Orders</h1>
+      <Panel className="overflow-hidden">
+        <div className="scrollx">
+          <table className="w-full">
+            <thead style={{background:'var(--panel-2)'}}>
+              <tr>{['Ticket','Symbol','Type','Volume','Entry','Current','SL','TP','Created','Status','Actions'].map(h=><th key={h} className="text-left px-3 py-2 text-[10.5px] font-semibold whitespace-nowrap" style={{color:'var(--text-faint)'}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {state.pendingOrders.map(o=>{
+                const price = state.prices[o.symbol]; const digits = digitsOf(o.symbol);
+                return (
+                  <tr key={o.id} style={{borderTop:'1px solid var(--border-soft)'}}>
+                    <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text-dim)'}}>#{o.ticket}</td>
+                    <td className="px-3 py-2 text-[12.5px] font-semibold" style={{color:'var(--text)'}}>{o.symbol}</td>
+                    <td className="px-3 py-2"><Badge tone={o.type.startsWith('BUY')?'buy':'sell'}>{o.type}</Badge></td>
+                    <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{fmt(o.volume,2)}</td>
+                    <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{o.entryPrice.toFixed(digits)}</td>
+                    <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text-dim)'}}>{price.mid.toFixed(digits)}</td>
+                    <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{o.sl?o.sl.toFixed(digits):'—'}</td>
+                    <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{o.tp?o.tp.toFixed(digits):'—'}</td>
+                    <td className="px-3 py-2 text-[11px]" style={{color:'var(--text-faint)'}}>{timeAgo(o.createdTs)}</td>
+                    <td className="px-3 py-2"><Badge tone="warn">Pending</Badge></td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1">
+                        <button onClick={()=>setModOrd(o)} className="p-1.5 rounded focus-ring" style={{color:'var(--text-dim)', background:'var(--panel-2)'}}><Icon name="edit" size={13}/></button>
+                        <button onClick={()=>{dispatch({type:'CANCEL_PENDING', id:o.id}); dispatch({type:'ADD_TOAST', text:'Pending order cancelled.', kind:'info'});}} className="p-1.5 rounded focus-ring" style={{color:'var(--sell)', background:'var(--sell-bg)'}}><Icon name="x" size={13}/></button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {state.pendingOrders.length===0 && <tr><td colSpan={11} className="text-center py-6 text-sm" style={{color:'var(--text-faint)'}}>No pending orders. Create one from the Trade screen.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+      {modOrd && (
+        <Modal title={`Modify Order #${modOrd.ticket}`} onClose={()=>setModOrd(null)} width={380}>
+          <ModifyOrderForm ord={modOrd} onClose={()=>setModOrd(null)} dispatch={dispatch}/>
+        </Modal>
+      )}
+    </div>
+  );
+}
+function ModifyOrderForm({ord,onClose,dispatch}){
+  const [entryPrice,setEntry] = useState(ord.entryPrice);
+  const [sl,setSl] = useState(ord.sl||'');
+  const [tp,setTp] = useState(ord.tp||'');
+  return (
+    <div>
+      <Field label="Entry Price"><TextInput type="number" step={pipSize(ord.symbol)} value={entryPrice} onChange={e=>setEntry(parseFloat(e.target.value)||0)}/></Field>
+      <Field label="Stop Loss"><TextInput type="number" step={pipSize(ord.symbol)} value={sl} onChange={e=>setSl(e.target.value)}/></Field>
+      <Field label="Take Profit"><TextInput type="number" step={pipSize(ord.symbol)} value={tp} onChange={e=>setTp(e.target.value)}/></Field>
+      <div className="flex gap-2 mt-2">
+        <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+        <Button variant="brand" className="flex-1" onClick={()=>{dispatch({type:'MODIFY_PENDING', id:ord.id, entryPrice, sl:parseFloat(sl)||0, tp:parseFloat(tp)||0}); dispatch({type:'ADD_TOAST', text:'Order updated.', kind:'success'}); onClose();}}>Save Changes</Button>
+      </div>
+    </div>
+  );
+}
+
+function HistoryPage({state}){
+  const [q,setQ] = useState('');
+  const [symF,setSymF] = useState('All');
+  const [dirF,setDirF] = useState('All');
+  const [plF,setPlF] = useState('All');
+  let rows = state.history;
+  if(symF!=='All') rows = rows.filter(r=>r.symbol===symF);
+  if(dirF!=='All') rows = rows.filter(r=>r.type===dirF);
+  if(plF==='Profit') rows = rows.filter(r=>r.profit>=0);
+  if(plF==='Loss') rows = rows.filter(r=>r.profit<0);
+  if(q) rows = rows.filter(r=>r.symbol.toLowerCase().includes(q.toLowerCase()));
+
+  function exportCSV(){
+    const header = 'Date,Ticket,Symbol,Type,Volume,Entry,Exit,Commission,Swap,Profit\n';
+    const body = rows.map(r=>[fmtDate(r.closeTs), r.ticket, r.symbol, r.type, r.volume, r.entry.toFixed(r.digits), r.exit.toFixed(r.digits), r.commission.toFixed(2), r.swap.toFixed(2), r.profit.toFixed(2)].join(',')).join('\n');
+    const blob = new Blob([header+body], {type:'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='trade-history.csv'; a.click(); URL.revokeObjectURL(url);
+  }
+  const totalPnl = rows.reduce((s,r)=>s+r.profit,0);
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Trade History</h1>
+        <Button variant="outline" size="sm" onClick={exportCSV}><Icon name="download" size={14}/> Export CSV</Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <TextInput placeholder="Search symbol..." value={q} onChange={e=>setQ(e.target.value)} className="w-44"/>
+        <Select value={symF} onChange={e=>setSymF(e.target.value)} options={['All',...INSTRUMENTS.map(i=>i.symbol)]} className="w-32"/>
+        <Select value={dirF} onChange={e=>setDirF(e.target.value)} options={['All','BUY','SELL']} className="w-28"/>
+        <Select value={plF} onChange={e=>setPlF(e.target.value)} options={['All','Profit','Loss']} className="w-28"/>
+      </div>
+      <div className="text-[12.5px]" style={{color:'var(--text-dim)'}}>{rows.length} trades · Net P&L <b className="mono" style={{color: totalPnl>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(totalPnl,{plus:true})}</b></div>
+      <Panel className="overflow-hidden">
+        <div className="scrollx">
+          <table className="w-full">
+            <thead style={{background:'var(--panel-2)'}}>
+              <tr>{['Date','Ticket','Symbol','Type','Volume','Entry','Exit','Duration','Commission','Swap','P&L'].map(h=><th key={h} className="text-left px-3 py-2 text-[10.5px] font-semibold whitespace-nowrap" style={{color:'var(--text-faint)'}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map(r=>(
+                <tr key={r.id} style={{borderTop:'1px solid var(--border-soft)'}}>
+                  <td className="px-3 py-2 text-[11.5px]" style={{color:'var(--text-dim)'}}>{fmtDate(r.closeTs)}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-dim)'}}>#{r.ticket}</td>
+                  <td className="px-3 py-2 text-[12.5px] font-semibold" style={{color:'var(--text)'}}>{r.symbol}</td>
+                  <td className="px-3 py-2"><Badge tone={r.type==='BUY'?'buy':'sell'}>{r.type}</Badge></td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{fmt(r.volume,2)}</td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{r.entry.toFixed(r.digits)}</td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text)'}}>{r.exit.toFixed(r.digits)}</td>
+                  <td className="px-3 py-2 mono text-[11px]" style={{color:'var(--text-faint)'}}>{Math.max(1,Math.floor((r.closeTs-r.openTs)/60000))}m</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{fmtMoney(r.commission)}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-faint)'}}>{fmtMoney(r.swap)}</td>
+                  <td className="px-3 py-2 mono text-[12.5px] font-bold" style={{color: r.profit>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(r.profit,{plus:true})}</td>
+                </tr>
+              ))}
+              {rows.length===0 && <tr><td colSpan={11} className="text-center py-6 text-sm" style={{color:'var(--text-faint)'}}>No trades match your filters.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function WatchlistPage({state,dispatch}){
+  const [newGroup,setNewGroup] = useState('');
+  const [addTo,setAddTo] = useState(null);
+  return (
+    <div className="p-4 md:p-6 space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Watchlists</h1>
+        <div className="flex items-center gap-2">
+          <TextInput placeholder="New list name..." value={newGroup} onChange={e=>setNewGroup(e.target.value)} className="w-40"/>
+          <Button variant="brand" size="sm" onClick={()=>{ if(newGroup.trim()){ dispatch({type:'CREATE_WATCHLIST_GROUP', name:newGroup.trim()}); setNewGroup(''); }}}><Icon name="plus" size={14}/> New List</Button>
+        </div>
+      </div>
+      {Object.entries(state.watchlists).map(([group, syms])=>(
+        <Panel key={group} className="overflow-hidden">
+          <div className="px-4 py-3 flex items-center justify-between" style={{borderBottom:'1px solid var(--border)'}}>
+            <h2 className="text-sm font-semibold" style={{color:'var(--text)'}}>{group}</h2>
+            <Button size="sm" variant="ghost" onClick={()=>setAddTo(group)}><Icon name="plus" size={13}/> Add instrument</Button>
+          </div>
+          <div className="scrollx">
+            <table className="w-full">
+              <tbody>
+                {syms.map(sym=>{
+                  const p = state.prices[sym]; const digits=digitsOf(sym);
+                  const up = p.mid>=p.dayOpen;
+                  return (
+                    <tr key={sym} style={{borderTop:'1px solid var(--border-soft)'}}>
+                      <td className="px-4 py-2.5 text-[13px] font-semibold cursor-pointer" style={{color:'var(--text)'}} onClick={()=>dispatch({type:'SELECT_SYMBOL', symbol:sym})}>{sym}</td>
+                      <td className="px-3 py-2.5 mono text-[12.5px]" style={{color: up?'var(--buy)':'var(--sell)'}}>{p.mid.toFixed(digits)}</td>
+                      <td className="px-3 py-2.5 mono text-[12px]" style={{color: up?'var(--buy)':'var(--sell)'}}>{fmtPct((p.mid-p.dayOpen)/p.dayOpen*100)}</td>
+                      <td className="px-3 py-2.5 text-right">
+                        <button onClick={()=>dispatch({type:'REMOVE_WATCH', group, symbol:sym})} className="p-1 rounded focus-ring" style={{color:'var(--text-faint)'}}><Icon name="x" size={14}/></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {syms.length===0 && <tr><td className="px-4 py-4 text-sm" style={{color:'var(--text-faint)'}}>No instruments yet.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      ))}
+      {addTo && (
+        <Modal title={`Add instrument to ${addTo}`} onClose={()=>setAddTo(null)} width={340}>
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {INSTRUMENTS.map(i=>(
+              <button key={i.symbol} onClick={()=>{dispatch({type:'ADD_WATCH', group:addTo, symbol:i.symbol}); }} className="w-full flex items-center justify-between px-3 py-2 rounded-md focus-ring" style={{background:'var(--panel-2)'}}>
+                <span className="text-sm font-medium" style={{color:'var(--text)'}}>{i.symbol}</span>
+                <Icon name="plus" size={14} style={{color:'var(--text-faint)'}}/>
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function EconomicCalendarPage({state}){
+  const [ccy,setCcy] = useState('All');
+  const [impact,setImpact] = useState('All');
+  let rows = state.calendar;
+  if(ccy!=='All') rows = rows.filter(r=>r.currency===ccy);
+  if(impact!=='All') rows = rows.filter(r=>r.impact===impact);
+  const impactTone = i => i==='High'?'sell':i==='Medium'?'warn':'neutral';
+  const ccys = ['All', ...Array.from(new Set(state.calendar.map(r=>r.currency)))];
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Economic Calendar</h1>
+      <div className="flex flex-wrap gap-2">
+        <Select value={ccy} onChange={e=>setCcy(e.target.value)} options={ccys} className="w-28"/>
+        <Select value={impact} onChange={e=>setImpact(e.target.value)} options={['All','High','Medium','Low']} className="w-32"/>
+      </div>
+      <Panel className="overflow-hidden">
+        <div className="scrollx">
+          <table className="w-full">
+            <thead style={{background:'var(--panel-2)'}}>
+              <tr>{['Date','Time','Currency','Country','Event','Impact','Previous','Forecast','Actual'].map(h=><th key={h} className="text-left px-3 py-2 text-[10.5px] font-semibold whitespace-nowrap" style={{color:'var(--text-faint)'}}>{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map(r=>(
+                <tr key={r.id} style={{borderTop:'1px solid var(--border-soft)'}}>
+                  <td className="px-3 py-2 text-[11.5px]" style={{color:'var(--text-dim)'}}>{fmtDate(r.ts)}</td>
+                  <td className="px-3 py-2 mono text-[11.5px]" style={{color:'var(--text-dim)'}}>{fmtClock(r.ts)}</td>
+                  <td className="px-3 py-2"><Badge>{r.currency}</Badge></td>
+                  <td className="px-3 py-2 text-[12px]" style={{color:'var(--text-dim)'}}>{r.country}</td>
+                  <td className="px-3 py-2 text-[12.5px] font-medium" style={{color:'var(--text)'}}>{r.event}</td>
+                  <td className="px-3 py-2"><Badge tone={impactTone(r.impact)}>{r.impact}</Badge></td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text-faint)'}}>{r.previous}</td>
+                  <td className="px-3 py-2 mono text-[12px]" style={{color:'var(--text-faint)'}}>{r.forecast}</td>
+                  <td className="px-3 py-2 mono text-[12px] font-semibold" style={{color:'var(--text)'}}>{r.actual||'—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function NewsPage({state}){
+  const [cat,setCat] = useState('All');
+  const cats = ['All','Forex','Central Banks','Economy','Commodities','Global Markets'];
+  const rows = cat==='All' ? state.news : state.news.filter(n=>n.category===cat);
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Market News</h1>
+      <div className="flex flex-wrap gap-1.5">
+        {cats.map(c=>(
+          <button key={c} onClick={()=>setCat(c)} className="px-3 py-1.5 rounded-full text-xs font-semibold focus-ring" style={{background: cat===c?'var(--brand-bg)':'var(--panel-2)', color: cat===c?'var(--brand)':'var(--text-dim)', border:'1px solid '+(cat===c?'var(--brand)':'var(--border)')}}>{c}</button>
+        ))}
+      </div>
+      <div className="grid md:grid-cols-2 gap-3">
+        {rows.map(n=>(
+          <Panel key={n.id} className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Badge tone="brand">{n.category}</Badge>
+              <Badge>{n.currency}</Badge>
+              <span className="text-[11px] ml-auto" style={{color:'var(--text-faint)'}}>{timeAgo(n.ts)}</span>
+            </div>
+            <h3 className="text-[14px] font-semibold mb-1.5" style={{color:'var(--text)'}}>{n.headline}</h3>
+            <p className="text-[12.5px] mb-2" style={{color:'var(--text-dim)'}}>{n.summary}</p>
+            <button className="text-xs font-semibold focus-ring" style={{color:'var(--brand)'}}>Read More →</button>
+          </Panel>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AlertsPage({state,dispatch}){
+  const [open,setOpen] = useState(false);
+  const [symbol,setSymbol] = useState('EUR/USD');
+  const [condition,setCondition] = useState('above');
+  const [value,setValue] = useState('');
+  const [name,setName] = useState('');
+  function create(){
+    if(!value) return;
+    dispatch({type:'CREATE_ALERT', payload:{symbol, condition, value:parseFloat(value), name: name||`${symbol} ${condition} ${value}`}});
+    dispatch({type:'ADD_TOAST', text:'Alert created.', kind:'success'});
+    setOpen(false); setValue(''); setName('');
+  }
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Price Alerts</h1>
+        <Button variant="brand" onClick={()=>setOpen(true)}><Icon name="plus" size={14}/> Create Alert</Button>
+      </div>
+      <div className="grid md:grid-cols-2 gap-3">
+        {state.alerts.map(a=>{
+          const digits = digitsOf(a.symbol);
+          return (
+            <Panel key={a.id} className="p-4 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-semibold text-sm" style={{color:'var(--text)'}}>{a.name}</span>
+                  {a.triggered ? <Badge tone="buy">Triggered</Badge> : a.active ? <Badge tone="brand">Active</Badge> : <Badge>Inactive</Badge>}
+                </div>
+                <p className="text-[12.5px]" style={{color:'var(--text-dim)'}}>{a.symbol} price {a.condition==='above'?'above':'below'} <span className="mono font-semibold" style={{color:'var(--text)'}}>{a.value.toFixed(digits)}</span></p>
+              </div>
+              <button onClick={()=>{const v=state.alerts.find(x=>x.id===a.id); dispatch({type:'DELETE_ALERT', id:a.id});}} className="p-1.5 rounded focus-ring" style={{color:'var(--sell)', background:'var(--sell-bg)'}}><Icon name="trash" size={14}/></button>
+            </Panel>
+          );
+        })}
+        {state.alerts.length===0 && <p className="text-sm" style={{color:'var(--text-faint)'}}>No alerts yet.</p>}
+      </div>
+      {open && (
+        <Modal title="Create Price Alert" onClose={()=>setOpen(false)} width={380}>
+          <Field label="Symbol"><Select value={symbol} onChange={e=>setSymbol(e.target.value)} options={INSTRUMENTS.map(i=>i.symbol)}/></Field>
+          <Field label="Condition"><Select value={condition} onChange={e=>setCondition(e.target.value)} options={['above','below']}/></Field>
+          <Field label="Value"><TextInput type="number" step={pipSize(symbol)} value={value} onChange={e=>setValue(e.target.value)} placeholder={state.prices[symbol].mid.toFixed(digitsOf(symbol))}/></Field>
+          <Field label="Alert name (optional)"><TextInput value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. EURUSD Breakout"/></Field>
+          <Button variant="brand" className="w-full" onClick={create}>Create Alert</Button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function WalletPage({state,dispatch}){
+  const [modal,setModal] = useState(null);
+  const [amount,setAmount] = useState('1000');
+  function doDeposit(){ const amt=parseFloat(amount)||0; if(amt<=0) return; dispatch({type:'DEPOSIT', amount:amt}); dispatch({type:'ADD_TOAST', text:`Demo deposit of ${fmtMoney(amt)} added.`, kind:'success'}); setModal(null); }
+  function doWithdraw(){ const amt=parseFloat(amount)||0; if(amt<=0 || amt>state.account.balance) { dispatch({type:'ADD_TOAST', text:'Insufficient demo balance.', kind:'warn'}); return; } dispatch({type:'WITHDRAW', amount:amt}); dispatch({type:'ADD_TOAST', text:`Demo withdrawal of ${fmtMoney(amt)} processed.`, kind:'info'}); setModal(null); }
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Wallet / Funds</h1>
+      <Badge tone="warn">DEMO ONLY — No real funds</Badge>
+      <div className="grid md:grid-cols-3 gap-3">
+        <Panel className="p-5 md:col-span-1">
+          <div className="text-xs font-medium mb-1" style={{color:'var(--text-dim)'}}>Available Balance</div>
+          <div className="text-2xl font-bold mono mb-4" style={{color:'var(--text)'}}>{fmtMoney(state.account.balance)}</div>
+          <div className="flex gap-2">
+            <Button variant="buy" className="flex-1" onClick={()=>setModal('deposit')}>Deposit</Button>
+            <Button variant="outline" className="flex-1" onClick={()=>setModal('withdraw')}>Withdraw</Button>
+          </div>
+        </Panel>
+        <Panel className="p-4 md:col-span-2 overflow-hidden">
+          <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Transaction History</h2>
+          <div className="scrollx">
+            <table className="w-full">
+              <tbody>
+                {state.walletTx.map(t=>(
+                  <tr key={t.id} style={{borderTop:'1px solid var(--border-soft)'}}>
+                    <td className="py-2 text-[12px]" style={{color:'var(--text-dim)'}}>{fmtDate(t.ts)}</td>
+                    <td className="py-2"><Badge tone={t.type==='Deposit'?'buy':t.type==='Withdrawal'?'sell':'neutral'}>{t.type}</Badge></td>
+                    <td className="py-2 text-[12px]" style={{color:'var(--text-faint)'}}>{t.note}</td>
+                    <td className="py-2 mono text-[12.5px] font-semibold text-right" style={{color: t.amount>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(t.amount,{plus:true})}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      </div>
+      {modal && (
+        <Modal title={modal==='deposit'?'Demo Deposit':'Demo Withdrawal'} onClose={()=>setModal(null)} width={360}>
+          <Field label="Amount (USD)"><TextInput type="number" value={amount} onChange={e=>setAmount(e.target.value)}/></Field>
+          <p className="text-[11.5px] mb-3" style={{color:'var(--text-faint)'}}>This is simulated for demo purposes — no real payment will be processed.</p>
+          <Button variant={modal==='deposit'?'buy':'outline'} className="w-full" onClick={modal==='deposit'?doDeposit:doWithdraw}>{modal==='deposit'?'Confirm Deposit':'Confirm Withdrawal'}</Button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsPage({state}){
+  const wins = state.history.filter(h=>h.profit>0);
+  const losses = state.history.filter(h=>h.profit<=0);
+  const winRate = state.history.length ? (wins.length/state.history.length*100) : 0;
+  const avgWin = wins.length ? wins.reduce((s,h)=>s+h.profit,0)/wins.length : 0;
+  const avgLoss = losses.length ? losses.reduce((s,h)=>s+h.profit,0)/losses.length : 0;
+  const totalPnl = state.history.reduce((s,h)=>s+h.profit,0);
+  const profitFactor = Math.abs(avgLoss*losses.length) > 0 ? (avgWin*wins.length)/Math.abs(avgLoss*losses.length) : 0;
+  const largestWin = wins.length? Math.max(...wins.map(h=>h.profit)):0;
+  const largestLoss = losses.length? Math.min(...losses.map(h=>h.profit)):0;
+  const avgDur = state.history.length ? state.history.reduce((s,h)=>s+(h.closeTs-h.openTs),0)/state.history.length/60000 : 0;
+
+  let running = 25000;
+  const eq = state.history.slice().reverse().map(h=>{ running+=h.profit; return running; });
+  const eqMax = Math.max(...eq, running), eqMin = Math.min(...eq, running);
+  const eqPath = eq.map((v,i)=>{ const px = (i/(eq.length-1||1))*680; const py = 120 - ((v-eqMin)/((eqMax-eqMin)||1))*110; return (i===0?'M':'L')+px+','+py; }).join(' ');
+
+  const bySymbol = {};
+  state.history.forEach(h=>{ bySymbol[h.symbol]=(bySymbol[h.symbol]||0)+h.profit; });
+  const symEntries = Object.entries(bySymbol);
+  const maxAbs = Math.max(...symEntries.map(([,v])=>Math.abs(v)), 1);
+
+  return (
+    <div className="p-4 md:p-6 space-y-5">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Analytics / Performance</h1>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <StatCard label="Total P&L" value={fmtMoney(totalPnl,{plus:true})} tone={totalPnl>=0?'buy':'sell'}/>
+        <StatCard label="Win Rate" value={winRate.toFixed(1)+'%'}/>
+        <StatCard label="Profit Factor" value={profitFactor.toFixed(2)}/>
+        <StatCard label="Total Trades" value={state.history.length}/>
+        <StatCard label="Winning Trades" value={wins.length} tone="buy"/>
+        <StatCard label="Losing Trades" value={losses.length} tone="sell"/>
+        <StatCard label="Avg Win" value={fmtMoney(avgWin)} tone="buy"/>
+        <StatCard label="Avg Loss" value={fmtMoney(avgLoss)} tone="sell"/>
+        <StatCard label="Largest Win" value={fmtMoney(largestWin)} tone="buy"/>
+        <StatCard label="Largest Loss" value={fmtMoney(largestLoss)} tone="sell"/>
+        <StatCard label="Avg Trade Duration" value={Math.round(avgDur)+'m'}/>
+        <StatCard label="Account Equity" value={fmtMoney(running)}/>
+      </div>
+      <Panel className="p-4">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Equity Curve</h2>
+        <svg viewBox="0 0 680 130" width="100%">
+          <path d={eqPath} fill="none" stroke="var(--brand)" strokeWidth="2"/>
+        </svg>
+      </Panel>
+      <Panel className="p-4">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Performance by Currency Pair</h2>
+        <div className="space-y-2">
+          {symEntries.map(([sym,val])=>(
+            <div key={sym} className="flex items-center gap-3">
+              <span className="text-[12px] w-16 shrink-0" style={{color:'var(--text-dim)'}}>{sym}</span>
+              <div className="flex-1 h-4 rounded overflow-hidden" style={{background:'var(--panel-2)'}}>
+                <div className="h-full" style={{width:(Math.abs(val)/maxAbs*100)+'%', background: val>=0?'var(--buy)':'var(--sell)'}}/>
+              </div>
+              <span className="text-[12px] mono w-20 text-right" style={{color: val>=0?'var(--buy)':'var(--sell)'}}>{fmtMoney(val,{plus:true})}</span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ReportsPage({state}){
+  const [type,setType] = useState('Trading Summary');
+  const types = ['Trading Summary','P&L Report','Transaction Report','Trade History','Account Statement'];
+  function exportCSV(){
+    const rows = state.history;
+    const header = 'Date,Ticket,Symbol,Type,Volume,Entry,Exit,Profit\n';
+    const body = rows.map(r=>[fmtDate(r.closeTs),r.ticket,r.symbol,r.type,r.volume,r.entry.toFixed(r.digits),r.exit.toFixed(r.digits),r.profit.toFixed(2)].join(',')).join('\n');
+    const blob = new Blob([header+body], {type:'text/csv'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=type.replace(/\s+/g,'-').toLowerCase()+'.csv'; a.click(); URL.revokeObjectURL(url);
+  }
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Reports</h1>
+      <Panel className="p-5">
+        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          <Field label="Report Type"><Select value={type} onChange={e=>setType(e.target.value)} options={types}/></Field>
+          <Field label="Instrument Filter"><Select value="All Instruments" onChange={()=>{}} options={['All Instruments', ...INSTRUMENTS.map(i=>i.symbol)]}/></Field>
+          <Field label="From"><TextInput type="date" defaultValue={new Date(now()-30*86400000).toISOString().slice(0,10)}/></Field>
+          <Field label="To"><TextInput type="date" defaultValue={new Date().toISOString().slice(0,10)}/></Field>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="brand" onClick={exportCSV}><Icon name="download" size={14}/> Export CSV</Button>
+          <Button variant="outline" onClick={()=>window.print()}><Icon name="file" size={14}/> Download PDF</Button>
+        </div>
+      </Panel>
+      <Panel className="p-4">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>{type} Preview</h2>
+        <p className="text-[12.5px] mb-3" style={{color:'var(--text-dim)'}}>Generated from {state.history.length} demo trades between {fmtDate(state.history[state.history.length-1]?.closeTs||now())} and {fmtDate(state.history[0]?.closeTs||now())}.</p>
+        <div className="grid grid-cols-3 gap-3">
+          <StatCard label="Net P&L" value={fmtMoney(state.history.reduce((s,h)=>s+h.profit,0),{plus:true})}/>
+          <StatCard label="Trades" value={state.history.length}/>
+          <StatCard label="Commission Paid" value={fmtMoney(Math.abs(state.history.reduce((s,h)=>s+h.commission,0)))}/>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+function ProfilePage({state,dispatch}){
+  const [name,setName] = useState(state.account.name);
+  const [email,setEmail] = useState(state.account.email);
+  const [phone,setPhone] = useState(state.account.phone);
+  const [country,setCountry] = useState(state.account.country);
+  const [editing,setEditing] = useState(false);
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Profile</h1>
+      <Panel className="p-5" style={{maxWidth:520}}>
+        <div className="flex items-center gap-4 mb-5">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold" style={{background:'var(--brand-bg)', color:'var(--brand)'}}>{name.split(' ').map(n=>n[0]).join('')}</div>
+          <div>
+            <div className="font-semibold" style={{color:'var(--text)'}}>{name}</div>
+            <div className="text-[12px]" style={{color:'var(--text-faint)'}}>Account ID: {state.account.id}</div>
+            <Badge tone="brand" className="mt-1">Demo Account</Badge>
+          </div>
+        </div>
+        {editing ? (
+          <>
+            <Field label="Full Name"><TextInput value={name} onChange={e=>setName(e.target.value)}/></Field>
+            <Field label="Email"><TextInput value={email} onChange={e=>setEmail(e.target.value)}/></Field>
+            <Field label="Phone"><TextInput value={phone} onChange={e=>setPhone(e.target.value)}/></Field>
+            <Field label="Country"><TextInput value={country} onChange={e=>setCountry(e.target.value)}/></Field>
+            <div className="flex gap-2 mt-2">
+              <Button variant="outline" className="flex-1" onClick={()=>setEditing(false)}>Cancel</Button>
+              <Button variant="brand" className="flex-1" onClick={()=>{dispatch({type:'UPDATE_PROFILE', patch:{name,email,phone,country}}); dispatch({type:'ADD_TOAST', text:'Profile updated.', kind:'success'}); setEditing(false);}}>Save Changes</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="space-y-2.5 text-[13px] mb-4">
+              <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Email</span><span style={{color:'var(--text)'}}>{state.account.email}</span></div>
+              <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Phone</span><span style={{color:'var(--text)'}}>{state.account.phone}</span></div>
+              <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Country</span><span style={{color:'var(--text)'}}>{state.account.country}</span></div>
+              <div className="flex justify-between"><span style={{color:'var(--text-dim)'}}>Demo account status</span><Badge tone="buy">Active</Badge></div>
+            </div>
+            <Button variant="outline" onClick={()=>setEditing(true)}><Icon name="edit" size={14}/> Edit Profile</Button>
+          </>
+        )}
+      </Panel>
+    </div>
+  );
+}
+
+function SettingsPage({state,dispatch}){
+  const S = state.settings;
+  const patch = p => dispatch({type:'UPDATE_SETTINGS', patch:p});
+  return (
+    <div className="p-4 md:p-6 space-y-4" style={{maxWidth:640}}>
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Settings</h1>
+      <Panel className="p-5">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Trading Settings</h2>
+        <Field label="Default Lot Size"><TextInput type="number" step="0.01" value={S.defaultLot} onChange={e=>patch({defaultLot:parseFloat(e.target.value)||0.01})}/></Field>
+        <Field label="Default Order Type"><Select value={S.defaultOrderType} onChange={e=>patch({defaultOrderType:e.target.value})} options={['Market','Limit','Stop']}/></Field>
+        <Toggle checked={S.confirmBeforeOrder} onChange={v=>patch({confirmBeforeOrder:v})} label="Confirmation before order"/>
+        <Toggle checked={S.oneClickTrading} onChange={v=>patch({oneClickTrading:v})} label="One-click trading"/>
+      </Panel>
+      <Panel className="p-5">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Chart Settings</h2>
+        <Field label="Default Timeframe"><Select value={S.chartDefaultTF} onChange={e=>patch({chartDefaultTF:e.target.value})} options={['1m','5m','15m','30m','1H','4H','1D','1W','1M']}/></Field>
+        <Field label="Default Chart Type"><Select value={S.chartDefaultType} onChange={e=>patch({chartDefaultType:e.target.value})} options={['candlestick','line','area']}/></Field>
+        <Toggle checked={S.showGrid} onChange={v=>patch({showGrid:v})} label="Show grid"/>
+        <Toggle checked={S.showVolume} onChange={v=>patch({showVolume:v})} label="Show volume"/>
+      </Panel>
+      <Panel className="p-5">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Notification Settings</h2>
+        <Toggle checked={S.notifyAlerts} onChange={v=>patch({notifyAlerts:v})} label="Price alerts"/>
+        <Toggle checked={S.notifyTrades} onChange={v=>patch({notifyTrades:v})} label="Trade notifications"/>
+        <Toggle checked={S.notifyEvents} onChange={v=>patch({notifyEvents:v})} label="Economic events"/>
+        <Toggle checked={S.notifyNews} onChange={v=>patch({notifyNews:v})} label="News notifications"/>
+      </Panel>
+      <Panel className="p-5">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Appearance</h2>
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button onClick={()=>dispatch({type:'SET_THEME', theme:'dark'})} className="py-2.5 rounded-md text-sm font-semibold focus-ring flex items-center justify-center gap-2" style={{background: state.theme==='dark'?'var(--brand-bg)':'var(--panel-2)', color: state.theme==='dark'?'var(--brand)':'var(--text-dim)', border:'1px solid '+(state.theme==='dark'?'var(--brand)':'var(--border)')}}><Icon name="moon" size={14}/> Dark</button>
+          <button onClick={()=>dispatch({type:'SET_THEME', theme:'light'})} className="py-2.5 rounded-md text-sm font-semibold focus-ring flex items-center justify-center gap-2" style={{background: state.theme==='light'?'var(--brand-bg)':'var(--panel-2)', color: state.theme==='light'?'var(--brand)':'var(--text-dim)', border:'1px solid '+(state.theme==='light'?'var(--brand)':'var(--border)')}}><Icon name="sun" size={14}/> Light</button>
+        </div>
+        <Toggle checked={S.compactMode} onChange={v=>patch({compactMode:v})} label="Compact mode"/>
+      </Panel>
+      <Panel className="p-5">
+        <h2 className="text-sm font-semibold mb-3" style={{color:'var(--text)'}}>Language</h2>
+        <Select value={S.language} onChange={e=>patch({language:e.target.value})} options={['English','Español','Français','Deutsch','Português']}/>
+      </Panel>
+    </div>
+  );
+}
+
+function HelpPage(){
+  const faqs = [
+    ['Is this a real trading platform?', 'No. Voltrix Markets Demo is a frontend-only prototype for demonstration purposes. No real money, orders, or broker connections are involved.'],
+    ['How does the price simulation work?', 'Prices update automatically every few seconds using a simulated random walk to mimic live market movement.'],
+    ['Can I lose real money here?', 'No — all balances, positions and trades exist only in your browser session and reset if the app is refreshed.'],
+    ['How do I place a demo trade?', 'Go to Trade, choose an instrument, set your volume and optional Stop Loss / Take Profit, then click Buy or Sell.'],
+  ];
+  return (
+    <div className="p-4 md:p-6 space-y-4" style={{maxWidth:640}}>
+      <h1 className="text-xl font-bold" style={{color:'var(--text)'}}>Help & Support</h1>
+      <Panel className="p-5 space-y-4">
+        {faqs.map(([q,a])=>(
+          <div key={q}>
+            <h3 className="text-sm font-semibold mb-1" style={{color:'var(--text)'}}>{q}</h3>
+            <p className="text-[12.5px]" style={{color:'var(--text-dim)'}}>{a}</p>
+          </div>
+        ))}
+      </Panel>
+      <Panel className="p-5 flex items-center gap-3">
+        <Icon name="mail" size={18} style={{color:'var(--brand)'}}/>
+        <div><div className="text-sm font-medium" style={{color:'var(--text)'}}>support@voltrixmarkets-demo.example</div><div className="text-[11.5px]" style={{color:'var(--text-faint)'}}>Demo support inbox — for illustration only</div></div>
+      </Panel>
+    </div>
+  );
+}
+
+/* ============================== APP ROOT ============================== */
+function App(){
+  const [state, dispatch] = useReducer(reducer, undefined, initialState);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  useEffect(()=>{ document.documentElement.setAttribute('data-theme', state.theme); }, [state.theme]);
+  useEffect(()=>{
+    if(!state.liveSim) return;
+    const id = setInterval(()=>dispatch({type:'TICK'}), 2000);
+    return ()=>clearInterval(id);
+  }, [state.liveSim]);
+
+  if(state.page==='login') return <LoginScreen dispatch={dispatch}/>;
+
+  const pages = {
+    dashboard: <DashboardPage state={state} dispatch={dispatch}/>,
+    markets: <MarketsPage state={state} dispatch={dispatch}/>,
+    trade: <TradePage state={state} dispatch={dispatch}/>,
+    positions: <PositionsPage state={state} dispatch={dispatch}/>,
+    orders: <PendingOrdersPage state={state} dispatch={dispatch}/>,
+    history: <HistoryPage state={state}/>,
+    watchlist: <WatchlistPage state={state} dispatch={dispatch}/>,
+    calendar: <EconomicCalendarPage state={state}/>,
+    news: <NewsPage state={state}/>,
+    alerts: <AlertsPage state={state} dispatch={dispatch}/>,
+    analytics: <AnalyticsPage state={state}/>,
+    reports: <ReportsPage state={state}/>,
+    wallet: <WalletPage state={state} dispatch={dispatch}/>,
+    settings: <SettingsPage state={state} dispatch={dispatch}/>,
+    profile: <ProfilePage state={state} dispatch={dispatch}/>,
+    help: <HelpPage/>,
+  };
+
+  return (
+    <div className="flex h-screen overflow-hidden" style={{background:'var(--bg)'}}>
+      <Sidebar state={state} dispatch={dispatch} mobileOpen={mobileOpen} setMobileOpen={setMobileOpen}/>
+      <div className="flex-1 flex flex-col min-w-0">
+        <Topbar state={state} dispatch={dispatch} setMobileOpen={setMobileOpen}/>
+        <div className="flex-1 overflow-y-auto pb-16 md:pb-0">
+          {pages[state.page] || pages.dashboard}
+        </div>
+      </div>
+      <MobileNav state={state} dispatch={dispatch} setMobileOpen={setMobileOpen}/>
+      <ToastContainer toasts={state.toasts} dispatch={dispatch}/>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>
